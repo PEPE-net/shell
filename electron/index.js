@@ -27,7 +27,7 @@ const fetchParity = require('./operations/fetchParity');
 const handleError = require('./operations/handleError');
 const messages = require('./messages');
 const { killParity } = require('./operations/runParity');
-const { getLocalDappsPath } = require('./utils/paths');
+const { getHashFetchPath, getLocalDappsPath } = require('./utils/paths');
 const { name: appName } = require('../package.json');
 
 const { app, BrowserWindow, ipcMain, session } = electron;
@@ -47,6 +47,11 @@ function createWindow () {
     height: 800,
     width: 1200
   });
+
+  const hashFetchPath = getHashFetchPath();
+
+  fsExists(hashFetchPath)
+    .catch(() => fsMkdir(hashFetchPath));
 
   const localDappsPath = getLocalDappsPath();
 

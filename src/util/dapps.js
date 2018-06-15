@@ -15,11 +15,11 @@
 // along with Parity.  If not, see <http://www.gnu.org/licenses/>.
 
 import BigNumber from 'bignumber.js';
-import { pick, range, uniq } from 'lodash';
+import { range, uniq } from 'lodash';
 
 import { bytesToHex } from '@parity/api/lib/util/format';
-import { IconCache } from '@parity/ui';
 import { getBuildPath, getLocalDappsPath } from './host';
+import hashFetch from './hashFetch';
 import isElectron from 'is-electron';
 
 import builtinApps from '../Dapps/dappsBuiltin.json';
@@ -200,6 +200,8 @@ export function fetchRegistryAppIds (api) {
     });
 }
 
+var toast = false;
+
 export function fetchRegistryApp (api, dappReg, appId) {
   return Promise
     .all([
@@ -208,63 +210,67 @@ export function fetchRegistryApp (api, dappReg, appId) {
       dappReg.getManifest(appId)
     ])
     .then(([imageId, contentId, manifestId]) => {
-      const app = {
-        id: appId,
-        image: IconCache.hashToImage(imageId),
-        contentHash: bytesToHex(contentId).substr(2),
-        manifestHash: bytesToHex(manifestId).substr(2),
-        type: 'network',
-        visible: true
-      };
+      const imageHash = bytesToHex(imageId).substr(2);
+      const contentHash = bytesToHex(contentId).substr(2);
+      const manifestHash = bytesToHex(manifestId).substr(2);
 
-      return fetchManifest(api, app.manifestHash)
-        .then((manifest) => {
-          if (manifest) {
-            app.manifestHash = null;
+      // if (!toast) {
+      //   toast = true;
+      //   hashFetch(api, 'fe26f6a19ea9393d69bc5d8c73c5072ccf126f51c10c135b42d6bf162d774fd9', 'file').then(pat => console.log('LE SUCCÈS', pat));
+      // }
 
-            // Add usefull manifest fields to app
-            Object.assign(app, pick(manifest, ['author', 'description', 'name', 'version']));
+      // Quelles conséquences de catch ici et que la promise resolve?
+      // ça veut dire que icon/manifest pas important
+      // I can live with this
+      return Promise.all([
+        hashFetch(api, imageHash, 'file').catch((e) => { console.log('error image fetch', e); }),
+        hashFetch(api, manifestHash, 'file').catch((e) => { console.log('error image fetch', e); })
+      ]).then(([imagePath, manifestPath]) => {
+        console.log('imagePath', 'manifestPath', imagePath, manifestPath);
+        return fsReadFile(manifestPath).then(r => {
+          try {
+            console.log('PARSING THE MANIFEST JSON !');
+            return JSON.parse(r);
+          } catch (e) {
+            console.error(`Couldn't parse manifest.json for local dapp ${appId}`, e);
+            return { };
           }
+        }).catch(e => {
+          console.error(`Couldn't read manifest.json for ${appId}`);
+          return { };
+        })
+            .then(manifest => {
+              console.log('maniest is', manifest);
+              const { author, description, name, version } = manifest;
+              const app = {
+                id: appId, // ignore manifest.id?
+                type: 'network',
+                author,
+                description,
+                name: name || '',
+                version,
+                visible: true, // Visible by default
+                image: `file://${imagePath}`,
+                contentHash
+                // ready: false revient à pas de localUrl encore.
+                // ready: false // Ready is set to true when the dapp contents is available
+              };
 
-          return app;
-        });
+              return app; // (is loading)
+            });
+      });
     })
-    .then((app) => {
+      .then((app) => {
       // Keep dapps that has a Manifest File and an Id
-      const dapp = (app.manifestHash || !app.id) ? null : app;
+        const dapp = !app.id ? null : app;
+        // @TODO DITCH APPS WITH NO MANIFEFST FILES
+        // todo null doesn't really work does it?
 
-      return dapp;
-    })
-    .catch((error) => {
-      console.warn('DappsStore:fetchRegistryApp', error);
-    });
-}
+        console.log('returning dapp', dapp);
 
-export function fetchManifest (api, manifestHash) {
-  if (/^(0x)?0+/.test(manifestHash)) {
-    return Promise.resolve(null);
-  }
-
-  return api.parity
-    .dappsUrl()
-    .then(dappsUrl => {
-      const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
-
-      return fetch(
-        `${protocol}//${dappsUrl}/api/content/${manifestHash}/`,
-        { redirect: 'follow', mode: 'cors' }
-      );
-    })
-    .then((response) => {
-      return response.ok
-        ? response.json()
-        : null;
-    })
-    .then((manifest) => {
-      return manifest;
-    })
-    .catch((error) => {
-      console.warn('DappsStore:fetchManifest', error);
-      return null;
-    });
+        return dapp;
+      })
+      .catch((error) => {
+        console.warn('DappsStore:fetchRegistryApp', error);
+      });
 }

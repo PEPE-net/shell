@@ -83,7 +83,7 @@ export default class Dapp extends Component {
     webview.addEventListener('new-window', (e) => {
       const protocol = url.parse(e.url).protocol;
 
-      if (protocol === 'http:' || protocol === 'https:') {
+      if (protocol === 'http:' || protocol === 'https:' || protocol === 'file:') { // don't allow dapp loading file into the same view either, yes?
         const { shell } = window.require('electron');
 
         shell.openExternal(e.url);
@@ -179,6 +179,18 @@ export default class Dapp extends Component {
         break;
 
       case 'network':
+
+          /*
+et sur la page de la dapp:
+(in the store) @TODO
+  // evtl onprogress callback app.progress = 0.4;
+  fetchContent.then(() => {
+    set localurl
+  }).catch('couldn't dl dapp content')
+  et que ça update l'app
+  sounds good
+
+    */
         src = `${dappsUrl}/${app.contentHash}/`;
         break;
     }

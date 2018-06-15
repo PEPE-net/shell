@@ -98,6 +98,7 @@ export default class DappsStore extends EventEmitter {
   }
 
   @computed get visibleUnpinned () {
+    console.log('visibleUnpinned apps', this.apps);
     return this.apps.filter((app) =>
       this.displayApps[app.id] &&
       this.displayApps[app.id].visible &&
@@ -132,8 +133,8 @@ export default class DappsStore extends EventEmitter {
   loadLocalApps () {
     return Promise
       .all([
-        this.fetchBuiltinApps().then((apps) => this.addApps(apps)),
-        this.fetchLocalApps().then((apps) => this.addApps(apps, true))
+        // @TODO TEMP this.fetchBuiltinApps().then((apps) => this.addApps(apps)),
+        // @TODO TEMP this.fetchLocalApps().then((apps) => this.addApps(apps, true))
       ]);
   }
 

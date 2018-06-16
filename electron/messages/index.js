@@ -32,12 +32,7 @@ module.exports = (event, arg, data) => {
       break;
     }
     case 'download-file': {
-      console.log('download-file');
       downloadFile(event, data);
-
-      return;
-      // return Promise.resolve('9999');
-      // return signerNewToken(event);
       break;
     }
     default:

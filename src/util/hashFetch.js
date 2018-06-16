@@ -47,8 +47,6 @@ function checkHashMatch (hash, path) {
 function queryAndDownload (api, hash) { // todo check expected ici
   const { githubHint } = Contracts.get(api);
 
-  console.log('EL AHSHO', hash);
-
   return githubHint.getEntry(`0x${hash}`).then(([slug, commit, author]) => {
     console.log('RESULT OF GITHUBHINT', [slug, commit, author]);
 
@@ -122,6 +120,8 @@ function download (url, { directory, filename }) {
 
 function downloadUrl (hash, url, zip = false) {
   const tempFilename = `${hash}.part`;
+
+  console.log('Requesting URL download: ', url);
 
   return download(url, {
     directory: getHashFetchPath(),

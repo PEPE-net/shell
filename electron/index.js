@@ -32,6 +32,8 @@ const { name: appName } = require('../package.json');
 
 const { app, BrowserWindow, ipcMain, session } = electron;
 
+const fsUnlink = util.promisify(fs.unlink);
+const fsReaddir = util.promisify(fs.readdir);
 const fsExists = util.promisify(fs.stat); // eslint-disable-line
 const fsMkdir = util.promisify(fs.mkdir);
 
@@ -51,7 +53,16 @@ function createWindow () {
   const hashFetchPath = getHashFetchPath();
 
   fsExists(hashFetchPath)
-  // @TODO .then(() clear .part files)
+    .then(() =>
+      fsReaddir(hashFetchPath)
+        .then(filenames =>
+          Promise.all(
+            filenames
+              .filter(filename => filename.endsWith('.part'))
+              .map(filename => fsUnlink(path.join(hashFetchPath, filename)))
+          ))
+        .catch(e => { console.error('Removing stale part files failed', e); })
+    )
     .catch(() => fsMkdir(hashFetchPath));
 
   const localDappsPath = getLocalDappsPath();

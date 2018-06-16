@@ -14,15 +14,35 @@
 // You should have received a copy of the GNU General Public License
 // along with Parity.  If not, see <http://www.gnu.org/licenses/>.
 
-const { download } = require('electron-dl');
+// Prompts "save as"...
+// const { download } = require('electron-dl');
 
 // Lets renderer process requests file downloads from Electron
+
+const path = require('path');
+const https = require('https');
+const fs = require('fs');
+
+function download (_, url, { directory, filename }) {
+  const dest = path.join(directory, filename);
+
+  return new Promise((resolve, reject) => {
+    var file = fs.createWriteStream(dest);
+
+    // todo disable cors
+    https.get(url, function (response) {
+      response.pipe(file);
+      file.on('finish', function () {
+        file.close(() => resolve());
+      });
+    });
+  });
+}
 
 module.exports = (event, data) => {
   const { url, directory, filename } = data;
 
-  console.log('downloadFile...', url, directory, filename);
-
+  console.log('SAVING TO ', filename);
   return new Promise((resolve, reject) => { if (!url || !filename || !directory) { reject('invalid url or directory or filename'); } else { resolve(); } }).then(() =>
     download(global.mainWindow, url, {
       directory,
@@ -30,11 +50,9 @@ module.exports = (event, data) => {
       // onProgress: progress =>
       // mainWindow.webContents.send('parity-download-progress', progress) // Notify the renderers
     })).then(() => {
-      console.log('downloadFile success !', filename);
       event.sender.send(`download-file-success-${filename}`);
     })
     .catch(e => {
-      console.log('downloadFile error !', e);
       event.sender.send(`download-file-error-${filename}`, e);
     });
 };

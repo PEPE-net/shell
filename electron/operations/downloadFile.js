@@ -14,9 +14,27 @@
 // You should have received a copy of the GNU General Public License
 // along with Parity.  If not, see <http://www.gnu.org/licenses/>.
 
-module.exports = (event, data) => {
-  const { /* url, directory, */ filename } = data;
+const { download } = require('electron-dl');
 
-  console.log('ouioui');
-  event.sender.send(`download-file-success-${filename}`, 'yay');
+// Lets renderer process requests file downloads from Electron
+
+module.exports = (event, data) => {
+  const { url, directory, filename } = data;
+
+  console.log('downloadFile...', url, directory, filename);
+
+  return new Promise((resolve, reject) => { if (!url || !filename || !directory) { reject('invalid url or directory or filename'); } else { resolve(); } }).then(() =>
+    download(global.mainWindow, url, {
+      directory,
+      filename
+      // onProgress: progress =>
+      // mainWindow.webContents.send('parity-download-progress', progress) // Notify the renderers
+    })).then(() => {
+      console.log('downloadFile success !', filename);
+      event.sender.send(`download-file-success-${filename}`);
+    })
+    .catch(e => {
+      console.log('downloadFile error !', e);
+      event.sender.send(`download-file-error-${filename}`, e);
+    });
 };

@@ -52,7 +52,7 @@ function queryAndDownload (api, hash) { // todo check expected ici
   return githubHint.getEntry(`0x${hash}`).then(([slug, commit, author]) => {
     console.log('RESULT OF GITHUBHINT', [slug, commit, author]);
 
-    if (commit.every(x => x === 0)) {
+    if (commit.every(x => x === 0)) { // @todo convert from bytes
       // The repo-slug is the URL to a file
       // @todo check is it starts with http ?
       return downloadUrl(hash, slug);
@@ -104,6 +104,7 @@ ipcRenderer.on('file-download-error', (filename) => {
 */
 
 function download (url, { directory, filename }) {
+  console.log('download', url);
   return new Promise((resolve, reject) => {
     ipcRenderer.send('asynchronous-message', 'download-file', { url, directory, filename });
 
@@ -113,6 +114,7 @@ function download (url, { directory, filename }) {
     });
 
     ipcRenderer.once(`download-file-error-${filename}`, (sender, p) => {
+      console.log('ERROR !', p);
       reject(p);
     });
   });

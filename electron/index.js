@@ -80,6 +80,8 @@ function createWindow () {
     );
   }
 
+  global.mainWindow = mainWindow;
+
   // Listen to messages from renderer process
   ipcMain.on('asynchronous-message', messages);
 

@@ -14,32 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with Parity.  If not, see <http://www.gnu.org/licenses/>.
 
-const { runParity } = require('../operations/runParity');
-const signerNewToken = require('../operations/signerNewToken');
-const downloadFile = require('../operations/downloadFile');
+module.exports = (event, data) => {
+  const { /* url, directory, */ filename } = data;
 
-/**
- * Handle all asynchronous messages from renderer to main.
- */
-module.exports = (event, arg, data) => {
-  switch (arg) {
-    case 'run-parity': {
-      runParity();
-      break;
-    }
-    case 'signer-new-token': {
-      signerNewToken(event);
-      break;
-    }
-    case 'download-file': {
-      console.log('download-file');
-      downloadFile(event, data);
-
-      return;
-      // return Promise.resolve('9999');
-      // return signerNewToken(event);
-      break;
-    }
-    default:
-  }
+  console.log('ouioui');
+  event.sender.send(`download-file-success-${filename}`, 'yay');
 };

@@ -51,12 +51,15 @@ function createWindow () {
   const hashFetchPath = getHashFetchPath();
 
   fsExists(hashFetchPath)
+  // @TODO .then(() clear .part files)
     .catch(() => fsMkdir(hashFetchPath));
 
   const localDappsPath = getLocalDappsPath();
 
   fsExists(localDappsPath)
     .catch(() => fsMkdir(localDappsPath));
+
+    // ^ todo prepareFolders.then(() => mainwindow.loadurl)
 
   doesParityExist()
     .catch(() => fetchParity(mainWindow)) // Install parity if not present

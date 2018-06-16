@@ -25,6 +25,7 @@ import { getHashFetchPath } from './host';
 import Contracts from '@parity/shared/lib/contracts';
 import { sha3 } from '@parity/api/lib/util/sha3';
 import extract from 'extract-zip';
+const { ipcRenderer } = window.require('electron');
 
 const fsExists = util.promisify(fs.stat);
 const fsRename = util.promisify(fs.rename);
@@ -32,7 +33,7 @@ const fsReadFile = util.promisify(fs.readFile);
 const fsUnlink = util.promisify(fs.unlink);
 const unzip = util.promisify(extract);
 
-import { https } from 'follow-redirects';
+// import { https } from 'follow-redirects';
 
 // const mainWindow = require('electron').BrowserWindow;
 
@@ -68,22 +69,51 @@ function queryAndDownload (api, hash) { // todo check expected ici
   });
 }
 
-// mocking electron-dl @TODO @TEMP
-const mainWindow = 123;
+// // mocking electron-dl @TODO @TEMP
+// const mainWindow = 123;
 
-// NEED TO FOLLOW REDIRECTIONS IN ANY CASE
-function download (_, url, { directory, filename }) {
-  const dest = path.join(directory, filename);
+// // NEED TO FOLLOW REDIRECTIONS IN ANY CASE
+// function download (_, url, { directory, filename }) {
+//   const dest = path.join(directory, filename);
 
+//   return new Promise((resolve, reject) => {
+//     var file = fs.createWriteStream(dest);
+
+//     // todo disable cors
+//     https.get(url, function (response) {
+//       response.pipe(file);
+//       file.on('finish', function () {
+//         file.close(() => resolve());
+//       });
+//     });
+//   });
+// }
+
+/*
+REMPLACER DOWNLOAD PAR:
+const downloadPromises = [];
+
+ipcRenderer.on('file-download-success', (filename) => {
+
+});
+
+ipcRenderer.on('file-download-error', (filename) => {
+
+});
+// je sais pas ce que ipcrenderer retourne? undefined ou bien ce qui est retourné par callback,
+*/
+
+function download (url, { directory, filename }) {
   return new Promise((resolve, reject) => {
-    var file = fs.createWriteStream(dest);
+    ipcRenderer.send('asynchronous-message', 'download-file', { url, directory, filename });
 
-    // todo disable cors
-    https.get(url, function (response) {
-      response.pipe(file);
-      file.on('finish', function () {
-        file.close(() => resolve());
-      });
+    ipcRenderer.once(`download-file-success-${filename}`, (sender, p) => {
+      console.log('SUCCESS !', p);
+      resolve(p);
+    });
+
+    ipcRenderer.once(`download-file-error-${filename}`, (sender, p) => {
+      reject(p);
     });
   });
 }
@@ -91,7 +121,7 @@ function download (_, url, { directory, filename }) {
 function downloadUrl (hash, url, zip = false) {
   const tempFilename = `${hash}.part`;
 
-  return download(mainWindow, url, {
+  return download(url, {
     directory: getHashFetchPath(),
     filename: `${hash}.part` // todo make sure filename cannot be '../' or something
   }) // todo error handling (can be upstream)

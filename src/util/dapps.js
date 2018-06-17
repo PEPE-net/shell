@@ -253,6 +253,6 @@ export function fetchRegistryApp (api, dappReg, appId) {
       );
     })
       .catch((error) => {
-        console.warn('DappsStore:fetchRegistryApp', error);
+        console.warn('DappsStore:fetchRegistryApp', appId, error);
       });
 }

@@ -87,7 +87,7 @@ function downloadUrl (hash, url, zip = false) {
     directory: getHashFetchPath(),
     filename: `${hash}.part` // todo make sure filename cannot be '../' or something
   }) // todo error handling (can be upstream)
-      .then(() => checkHashMatch(hash, path.join(getHashFetchPath(), tempFilename)))
+      .then(() => checkHashMatch(hash, path.join(getHashFetchPath(), tempFilename))) // @TODO DELETE .PART FILE AND USE BLACKLIST IF FAIL
       .then(() => {
         if (zip) { // @todo unzipping needs to be moved to operations/downloadFile
           return unzip(path.join(getHashFetchPath(), tempFilename), { dir: path.join(getHashFetchPath(), tempFilename) }).then(() => fsUnlink(path.join(getHashFetchPath(), tempFilename)));

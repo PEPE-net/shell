@@ -41,9 +41,15 @@ function queryRegistryAndDownload (api, hash) { // todo check expected ici
   const { githubHint } = Contracts.get(api);
 
   return githubHint.getEntry(`0x${hash}`).then(([slug, commit, author]) => {
+    // TODO CONVERT COMMIT FROM BYTES
+    if (!slug && commit.every(x => x === 0) && author === '0x0000000000000000000000000000000000000000') {
+      throw new Error(`No GitHub Hint entry found.`);
+    }
+
     if (commit.every(x => x === 0)) { // @todo convert from bytes
       // The repo-slug is the URL to a file
       // @todo check is it starts with http ?
+      if (!slug) { throw new Error(`GitHub Hint entry has no URL.`); }
       return downloadUrl(hash, slug);
     } else if (commit.slice(-1).every(x => x === 0) && commit[commit.length - 1] === 1) {
       // The reposlug is the URL to a zip file with a dapp

@@ -215,7 +215,7 @@ export function fetchRegistryApp (api, dappReg, appId) {
 
       return Promise.all([
         hashFetch(api, imageHash, 'file').catch((e) => { console.warn(`Couldn't download icon for dapp ${appId}`, e); }),
-        hashFetch(api, manifestHash, 'file') // Reject apps with invalid manifest.json
+        hashFetch(api, manifestHash, 'file').catch((e) => { throw new Error(`Couldn't download manifest ${e}`); })
       ]).then(([imagePath, manifestPath]) =>
         fsReadFile(manifestPath)
           .then(r => {

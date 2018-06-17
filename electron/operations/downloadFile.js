@@ -42,8 +42,7 @@ function download (url, { directory, filename }) {
 module.exports = (event, data) => {
   const { url, directory, filename } = data;
 
-  console.log('SAVING TO ', filename);
-  return new Promise((resolve, reject) => { if (!url || !filename || !directory) { reject('invalid url or directory or filename'); } else { resolve(); } }).then(() =>
+  return new Promise((resolve, reject) => { if (!url || !filename || !directory) { reject(`downloadFile Invalid url (${url}) or directory (${directory}) or filename (${filename})`); } else { resolve(); } }).then(() =>
     download(url, {
       directory,
       filename

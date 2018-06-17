@@ -33,8 +33,7 @@ const unzip = util.promisify(extract);
 
 function checkHashMatch (hash, path) {
   return fsReadFile(path).then(content => {
-    if (sha3(content) !== `0x${hash}`) { throw new Error(`Hashes don't match match: expected 0x${hash}, got ${sha3(content)}`); }
-    // si hash mismatch, alors del file?
+    if (sha3(content) !== `0x${hash}`) { throw new Error(`Hashes don't match: expected 0x${hash}, got ${sha3(content)}`); }
   });
 }
 
@@ -42,8 +41,6 @@ function queryRegistryAndDownload (api, hash) { // todo check expected ici
   const { githubHint } = Contracts.get(api);
 
   return githubHint.getEntry(`0x${hash}`).then(([slug, commit, author]) => {
-    console.log('RESULT OF GITHUBHINT', [slug, commit, author]);
-
     if (commit.every(x => x === 0)) { // @todo convert from bytes
       // The repo-slug is the URL to a file
       // @todo check is it starts with http ?
@@ -62,17 +59,14 @@ function queryRegistryAndDownload (api, hash) { // todo check expected ici
 }
 
 function download (url, { directory, filename }) {
-  console.log('download', url);
   return new Promise((resolve, reject) => {
     ipcRenderer.send('asynchronous-message', 'download-file', { url, directory, filename });
 
     ipcRenderer.once(`download-file-success-${filename}`, (sender, p) => {
-      console.log('SUCCESS !', p);
       resolve(p);
     });
 
     ipcRenderer.once(`download-file-error-${filename}`, (sender, p) => {
-      console.log('ERROR !', p);
       reject(p);
     });
   });
@@ -80,8 +74,6 @@ function download (url, { directory, filename }) {
 
 function downloadUrl (hash, url, zip = false) {
   const tempFilename = `${hash}.part`;
-
-  console.log('Requesting URL download: ', url);
 
   return download(url, {
     directory: getHashFetchPath(),
@@ -104,11 +96,7 @@ export default function hashFetch (api, hash, expected /* 'file' || 'dapp' */) {
   if (hash in promises) { return promises[hash]; }
 
   promises[hash] = fsExists(path.join(getHashFetchPath(), hash)) // todo either file or directory. BUT CHECK IF IT'S A DIRECTORY IF expected IS A DIRECTORY. IF THE DIRECTORY DOESN'T EXIST THEN WE ASSUME IT'S BEING UNPACKED.
-      .catch(() => (
-        fsExists(path.join(getHashFetchPath(), `${hash}.part`))
-          .then(() => console.log('UNIMPLEMENTED')) // check every second, or return the same promise
-          .catch(() => queryRegistryAndDownload(api, hash))
-      ))
+      .catch(() => queryRegistryAndDownload(api, hash))
       .then(() => path.join(getHashFetchPath(), hash));
 
   return promises[hash];

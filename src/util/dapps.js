@@ -200,8 +200,7 @@ export function fetchRegistryAppIds (api) {
     });
 }
 
-var toast = false;
-
+// Returns undefined if dapp is invalid
 export function fetchRegistryApp (api, dappReg, appId) {
   return Promise
     .all([
@@ -214,62 +213,45 @@ export function fetchRegistryApp (api, dappReg, appId) {
       const contentHash = bytesToHex(contentId).substr(2);
       const manifestHash = bytesToHex(manifestId).substr(2);
 
-      // if (!toast) {
-      //   toast = true;
-      //   hashFetch(api, 'fe26f6a19ea9393d69bc5d8c73c5072ccf126f51c10c135b42d6bf162d774fd9', 'file').then(pat => console.log('LE SUCCÈS', pat));
-      // }
-
-      // Quelles conséquences de catch ici et que la promise resolve?
-      // ça veut dire que icon/manifest pas important
-      // I can live with this
       return Promise.all([
-        hashFetch(api, imageHash, 'file').catch((e) => { console.log('error image fetch', e); }),
-        hashFetch(api, manifestHash, 'file').catch((e) => { console.log('error image fetch', e); })
-      ]).then(([imagePath, manifestPath]) => {
-        console.log('imagePath', 'manifestPath', imagePath, manifestPath);
-        return fsReadFile(manifestPath).then(r => {
-          try {
-            console.log('PARSING THE MANIFEST JSON !');
-            return JSON.parse(r);
-          } catch (e) {
-            console.error(`Couldn't parse manifest.json for local dapp ${appId}`, e);
-            return { };
-          }
-        }).catch(e => {
-          console.error(`Couldn't read manifest.json for ${appId}`);
-          return { };
-        })
-            .then(manifest => {
-              console.log('maniest is', manifest);
-              const { author, description, name, version } = manifest;
-              const app = {
-                id: appId, // ignore manifest.id?
-                type: 'network',
-                author,
-                description,
-                name: name || '',
-                version,
-                visible: true, // Visible by default
-                image: `file://${imagePath}`,
-                contentHash
-                // ready: false revient à pas de localUrl encore.
-                // ready: false // Ready is set to true when the dapp contents is available
-              };
+        hashFetch(api, imageHash, 'file').catch((e) => { console.warn(`Couldn't download icon for dapp ${appId}`, e); }),
+        hashFetch(api, manifestHash, 'file') // Reject apps with invalid manifest.json
+      ]).then(([imagePath, manifestPath]) =>
+        fsReadFile(manifestPath)
+          .then(r => {
+            try {
+              const manifest = JSON.parse(r);
 
-              return app; // (is loading)
-            });
-      });
+              if (!manifest.id) {
+                throw new Error(`manifest.json doesn't specify app id for network dapp ${appId} ${r}`);
+              }
+
+              return JSON.parse(r);
+            } catch (e) {
+              throw new Error(`Couldn't parse manifest.json for network dapp ${appId} ${e}`);
+            }
+          })
+          .catch(e => {
+            throw new Error(`Couldn't read manifest.json file locally (${manifestPath}) for network dapp ${appId} ${e}`);
+          })
+          .then(manifest => {
+            const { author, description, name, version } = manifest;
+            const app = {
+              id: appId, // ignore manifest.id?
+              type: 'network',
+              author,
+              description,
+              name: name || '',
+              version,
+              visible: true, // Visible by default
+              image: `file://${imagePath}`,
+              contentHash
+            };
+
+            return app;
+          })
+      );
     })
-      .then((app) => {
-      // Keep dapps that has a Manifest File and an Id
-        const dapp = !app.id ? null : app;
-        // @TODO DITCH APPS WITH NO MANIFEFST FILES
-        // todo null doesn't really work does it?
-
-        console.log('returning dapp', dapp);
-
-        return dapp;
-      })
       .catch((error) => {
         console.warn('DappsStore:fetchRegistryApp', error);
       });

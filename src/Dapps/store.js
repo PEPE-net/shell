@@ -98,7 +98,6 @@ export default class DappsStore extends EventEmitter {
   }
 
   @computed get visibleUnpinned () {
-    console.log('visibleUnpinned apps', this.apps);
     return this.apps.filter((app) =>
       this.displayApps[app.id] &&
       this.displayApps[app.id].visible &&
@@ -241,7 +240,9 @@ export default class DappsStore extends EventEmitter {
         });
 
         return Promise.all(promises);
-      });
+      })
+      .then(apps =>
+        apps.filter(app => app));
   }
 
   @action refreshDapps = () => {

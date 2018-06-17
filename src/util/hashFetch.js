@@ -17,8 +17,6 @@
 const fs = window.require('fs');
 const util = window.require('util');
 const path = window.require('path');
-// const { download } = require('electron-dl');
-// const { getHashFetchPath } = window.require('./host');
 
 import { getHashFetchPath } from './host';
 
@@ -33,10 +31,6 @@ const fsReadFile = util.promisify(fs.readFile);
 const fsUnlink = util.promisify(fs.unlink);
 const unzip = util.promisify(extract);
 
-// import { https } from 'follow-redirects';
-
-// const mainWindow = require('electron').BrowserWindow;
-
 function checkHashMatch (hash, path) {
   return fsReadFile(path).then(content => {
     if (sha3(content) !== `0x${hash}`) { throw new Error(`Hashes don't match match: expected 0x${hash}, got ${sha3(content)}`); }
@@ -44,7 +38,7 @@ function checkHashMatch (hash, path) {
   });
 }
 
-function queryAndDownload (api, hash) { // todo check expected ici
+function queryRegistryAndDownload (api, hash) { // todo check expected ici
   const { githubHint } = Contracts.get(api);
 
   return githubHint.getEntry(`0x${hash}`).then(([slug, commit, author]) => {
@@ -66,40 +60,6 @@ function queryAndDownload (api, hash) { // todo check expected ici
     }
   });
 }
-
-// // mocking electron-dl @TODO @TEMP
-// const mainWindow = 123;
-
-// // NEED TO FOLLOW REDIRECTIONS IN ANY CASE
-// function download (_, url, { directory, filename }) {
-//   const dest = path.join(directory, filename);
-
-//   return new Promise((resolve, reject) => {
-//     var file = fs.createWriteStream(dest);
-
-//     // todo disable cors
-//     https.get(url, function (response) {
-//       response.pipe(file);
-//       file.on('finish', function () {
-//         file.close(() => resolve());
-//       });
-//     });
-//   });
-// }
-
-/*
-REMPLACER DOWNLOAD PAR:
-const downloadPromises = [];
-
-ipcRenderer.on('file-download-success', (filename) => {
-
-});
-
-ipcRenderer.on('file-download-error', (filename) => {
-
-});
-// je sais pas ce que ipcrenderer retourne? undefined ou bien ce qui est retourné par callback,
-*/
 
 function download (url, { directory, filename }) {
   console.log('download', url);
@@ -129,19 +89,11 @@ function downloadUrl (hash, url, zip = false) {
   }) // todo error handling (can be upstream)
       .then(() => checkHashMatch(hash, path.join(getHashFetchPath(), tempFilename)))
       .then(() => {
-        if (zip) {
+        if (zip) { // @todo unzipping needs to be moved to operations/downloadFile
           return unzip(path.join(getHashFetchPath(), tempFilename), { dir: path.join(getHashFetchPath(), tempFilename) }).then(() => fsUnlink(path.join(getHashFetchPath(), tempFilename)));
         }
       })
       .then(() => fsRename(path.join(getHashFetchPath(), tempFilename), path.join(getHashFetchPath(), hash)));
-  // avec filesize limit -- but is it really necessary given we only
-  //
-  //
-  // WAAAAAAIT, dapp download needs to be a background electron process!!
-  // can't be set here
-  // otherwise it gets garbage collected
-  //
-  // do we want to interrupt the download if the user quits the page?
 }
 
 const promises = {};
@@ -149,19 +101,15 @@ const promises = {};
 // Returns a Promise that resolves with the path to the file or directory
 // @TODO use expected to make sure we don't get a dapp when fetching a file or vice versa
 export default function hashFetch (api, hash, expected /* 'file' || 'dapp' */) {
- //  if (hash !== 'fe26f6a19ea9393d69bc5d8c73c5072ccf126f51c10c135b42d6bf162d774fd9') { return Promise.resolve(); }
-
   if (hash in promises) { return promises[hash]; }
 
-  console.log('hashfetch', hash); // @TODO ADD PROPER LOGGING TO SPOT RACE CONDITIONS ETC.
   promises[hash] = fsExists(path.join(getHashFetchPath(), hash)) // todo either file or directory. BUT CHECK IF IT'S A DIRECTORY IF expected IS A DIRECTORY. IF THE DIRECTORY DOESN'T EXIST THEN WE ASSUME IT'S BEING UNPACKED.
       .catch(() => (
         fsExists(path.join(getHashFetchPath(), `${hash}.part`))
           .then(() => console.log('UNIMPLEMENTED')) // check every second, or return the same promise
-          .catch(() => queryAndDownload(api, hash)) // download
+          .catch(() => queryRegistryAndDownload(api, hash))
       ))
-      .then(() => path.join(getHashFetchPath(), hash))
-    .catch((e) => console.log('A HASHFETCH ERROR OCCURED', e)); // hashfetch an error occured e
+      .then(() => path.join(getHashFetchPath(), hash));
 
   return promises[hash];
 }

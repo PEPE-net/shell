@@ -23,7 +23,7 @@ const path = require('path');
 const https = require('https');
 const fs = require('fs');
 
-function download (_, url, { directory, filename }) {
+function download (url, { directory, filename }) {
   const dest = path.join(directory, filename);
 
   return new Promise((resolve, reject) => {
@@ -44,10 +44,10 @@ module.exports = (event, data) => {
 
   console.log('SAVING TO ', filename);
   return new Promise((resolve, reject) => { if (!url || !filename || !directory) { reject('invalid url or directory or filename'); } else { resolve(); } }).then(() =>
-    download(global.mainWindow, url, {
+    download(url, {
       directory,
       filename
-      // onProgress: progress =>
+      // onProgress: progress => @TODO FILESIZE LIMIT
       // mainWindow.webContents.send('parity-download-progress', progress) // Notify the renderers
     })).then(() => {
       event.sender.send(`download-file-success-${filename}`);

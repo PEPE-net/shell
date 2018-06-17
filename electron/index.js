@@ -39,20 +39,10 @@ const fsMkdir = util.promisify(fs.mkdir);
 
 let mainWindow;
 
-function createWindow () {
-  // Will send these variables to renderers via IPC
-  global.dirName = __dirname;
-  global.wsInterface = cli.wsInterface;
-  global.wsPort = cli.wsPort;
-
-  mainWindow = new BrowserWindow({
-    height: 800,
-    width: 1200
-  });
-
+function prepareHashFetchFolder () {
   const hashFetchPath = getHashFetchPath();
 
-  fsExists(hashFetchPath)
+  return fsExists(hashFetchPath)
     .then(() =>
       fsReaddir(hashFetchPath)
         .then(filenames =>
@@ -64,17 +54,34 @@ function createWindow () {
         .catch(e => { console.error('Removing stale part files failed', e); })
     )
     .catch(() => fsMkdir(hashFetchPath));
+}
 
+function prepareCacheFolder () {
   const localDappsPath = getLocalDappsPath();
 
-  fsExists(localDappsPath)
+  return fsExists(localDappsPath)
     .catch(() => fsMkdir(localDappsPath));
+}
 
-    // ^ todo prepareFolders.then(() => mainwindow.loadurl)
-
+function runApp () {
   doesParityExist()
     .catch(() => fetchParity(mainWindow)) // Install parity if not present
     .catch(handleError); // Errors should be handled before, this is really just in case
+
+  // The app expects cache and hashFetch folders to be prepared already
+  Promise.all([prepareHashFetchFolder, prepareCacheFolder]).then(createWindow);
+}
+
+function createWindow () {
+  // Will send these variables to renderers via IPC
+  global.dirName = __dirname;
+  global.wsInterface = cli.wsInterface;
+  global.wsPort = cli.wsPort;
+
+  mainWindow = new BrowserWindow({
+    height: 800,
+    width: 1200
+  });
 
   if (cli.uiDev === true) {
     // Opens http://127.0.0.1:3000 in --ui-dev mode
@@ -90,8 +97,6 @@ function createWindow () {
       })
     );
   }
-
-  global.mainWindow = mainWindow;
 
   // Listen to messages from renderer process
   ipcMain.on('asynchronous-message', messages);
@@ -143,7 +148,7 @@ function createWindow () {
   });
 }
 
-app.on('ready', createWindow);
+app.on('ready', runApp);
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

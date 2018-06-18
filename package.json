@@ -197,6 +197,7 @@
     "semantic-ui-react": "0.77.0",
     "solc": "ngotchac/solc-js",
     "store": "1.3.20",
+    "unzip": "0.1.11",
     "util.promisify": "1.0.0"
   }
 }

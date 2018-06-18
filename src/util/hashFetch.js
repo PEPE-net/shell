@@ -17,13 +17,16 @@
 const fs = window.require('fs');
 const util = window.require('util');
 const path = window.require('path');
+const https = window.require('https');
+// const unzip = require('unzip');
+
+import unzip from 'unzip';
 
 import { getHashFetchPath } from './host';
 
 import Contracts from '@parity/shared/lib/contracts';
 import { sha3 } from '@parity/api/lib/util/sha3';
 import { bytesToHex } from '@parity/api/lib/util/format';
-const { ipcRenderer } = window.require('electron');
 
 const fsExists = util.promisify(fs.stat);
 const fsRename = util.promisify(fs.rename);
@@ -70,35 +73,35 @@ function queryRegistryAndDownload (api, hash) { // todo check expected ici
 }
 
 function download (url, { directory, filename }) {
+  if (!url || !filename || !directory) {
+    return Promise.reject(`download: Invalid url (${url}) or directory (${directory}) or filename (${filename})`);
+  }
+
+  const dest = path.join(directory, filename);
+
   return new Promise((resolve, reject) => {
-    // actually TODO I think it's safe to download it in this file; remove ipc calls
-    ipcRenderer.send('asynchronous-message', 'download-file', { url, directory, filename });
+    var file = fs.createWriteStream(dest);
 
-    ipcRenderer.once(`download-file-success-${filename}`, (sender, p) => {
-      resolve(p);
-    });
-
-    ipcRenderer.once(`download-file-error-${filename}`, (sender, p) => {
-      reject(p);
+    // todo disable cors
+    https.get(url, function (response) {
+      response.pipe(file);
+      file.on('finish', function () {
+        file.close(() => resolve());
+      });
     });
   });
 }
 
-function unzip (filepath, { dir, filename }) {
+function unzip_ (zippath, opts) {
   return new Promise((resolve, reject) => {
-    // actually TODO I think it's safe to download it in this file; remove ipc calls
-    // but unzip doesn't work on the frontend
-    ipcRenderer.send('asynchronous-message', 'unzip-file', { filepath, dir, filename });
+    var unzipParser = unzip.Extract({ path: path.join(opts.dir, opts.filename) });
 
-    ipcRenderer.once(`unzip-file-success-${filename}`, (sender, p) => {
-      console.log('ipcrenderer resolved');
-      resolve(p);
+    fs.createReadStream(zippath).pipe(unzipParser);
+    unzipParser.on('error', function (err) {
+      reject(err);
     });
 
-    ipcRenderer.once(`unzip-file-error-${filename}`, (sender, p) => {
-      console.log('ipcrenderer errored');
-      reject(p);
-    });
+    unzipParser.on('close', resolve());
   });
 }
 
@@ -114,7 +117,7 @@ function downloadUrl (hash, url, zip = false) {
         if (zip) { // @todo unzipping needs to be moved to operations/downloadFile
           const tempFolderName = `${hash}.part`;
 
-          return unzip(path.join(getHashFetchPath(), tempFilename), { dir: path.join(getHashFetchPath(), tempFolderName), filename: tempFolderName }) // todo dir should be containing dir ; function concatentes with filename
+          return unzip_(path.join(getHashFetchPath(), tempFilename), { dir: path.join(getHashFetchPath(), tempFolderName), filename: tempFolderName, fs }) // todo dir should be containing dir ; function concatentes with filename
             .then(() => fsUnlink(path.join(getHashFetchPath(), tempFilename)))
             .then(() => { // todo call a functional function (needs to be inside unzip)
               return fsReaddir(path.join(getHashFetchPath(), tempFolderName))

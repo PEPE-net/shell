@@ -16,8 +16,6 @@
 
 const { runParity } = require('../operations/runParity');
 const signerNewToken = require('../operations/signerNewToken');
-const downloadFile = require('../operations/downloadFile');
-const unzipFile = require('../operations/unzipFile');
 
 /**
  * Handle all asynchronous messages from renderer to main.
@@ -30,15 +28,6 @@ module.exports = (event, arg, data) => {
     }
     case 'signer-new-token': {
       signerNewToken(event);
-      break;
-    }
-    case 'download-file': {
-      downloadFile(event, data);
-      break;
-    }
-    case 'unzip-file': {
-      console.log('unzipFile message');
-      unzipFile(event, data);
       break;
     }
     default:

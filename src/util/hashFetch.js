@@ -41,29 +41,30 @@ function checkHashMatch (hash, path) {
 function queryRegistryAndDownload (api, hash) { // todo check expected ici
   const { githubHint } = Contracts.get(api);
 
-  return githubHint.getEntry(`0x${hash}`).then(([slug, commit, author]) => {
-    // TODO CONVERT COMMIT FROM BYTES
-    if (!slug && commit.every(x => x === 0) && author === '0x0000000000000000000000000000000000000000') {
+  return githubHint.getEntry(`0x${hash}`).then(([slug, commitBytes, author]) => {
+    const commit = bytesToHex(commitBytes);
+
+    console.log('SLUG COMMIT AUTHOR', slug, commit, author);
+
+    if (!slug && commit === '0x0000000000000000000000000000000000000000' && author === '0x0000000000000000000000000000000000000000') {
       throw new Error(`No GitHub Hint entry found.`);
     }
-
-    // todo bytesToHex sur le slug et tester against 0x0000000000000000000000000000000000000000
-    if (commit.every(x => x === 0)) { // @todo convert from bytes
+    if (commit === '0x0000000000000000000000000000000000000000') {
+      console.log('repo slug is url to a file..');
       // The repo-slug is the URL to a file
       // @todo check is it starts with http ?
       if (!slug) { throw new Error(`GitHub Hint entry has no URL.`); }
       return downloadUrl(hash, slug);
-    } else if (commit.slice(-1).every(x => x === 0) && commit[commit.length - 1] === 1) {
-      // The reposlug is the URL to a zip file with a dapp
+    } else if (commit === '0x0000000000000000000000000000000000000001') {
+      // The repo-slug is the URL to a zip file with a dapp
       console.log('zipdapp', slug);
       return downloadUrl(hash, slug, true);
     } else {
       // Dapp stored in GitHub
-      commit = bytesToHex(commit).substr(2);
-      console.log('stored in github', `https://codeload.github.com/${slug}/zip/${commit}`);
-      // format!("https://codeload.github.com/{}/{}/zip/{}", self.account, self.repo, self.commit.to_hex())
-      // todo commit needs to be converted to hex
-      return downloadUrl(hash, `https://codeload.github.com/${slug}/zip/${commit}`, true); // todo use object instead of true arg?
+      const url = `https://codeload.github.com/${slug}/zip/${commit.substr(2)}`;
+
+      console.log('Downloading dapp from GitHub', url);
+      return downloadUrl(hash, url, true); // todo use object instead of true arg?
     }
   });
 }
@@ -115,7 +116,7 @@ function downloadUrl (hash, url, zip = false) {
 
           return unzip(path.join(getHashFetchPath(), tempFilename), { dir: path.join(getHashFetchPath(), tempFolderName), filename: tempFolderName }) // todo dir should be containing dir ; function concatentes with filename
             .then(() => fsUnlink(path.join(getHashFetchPath(), tempFilename)))
-            .then(() => {
+            .then(() => { // todo call a functional function (needs to be inside unzip)
               return fsReaddir(path.join(getHashFetchPath(), tempFolderName))
                   .then(filenames => {
                     if (filenames.length === 1 && filenames[0] !== 'index.html') {

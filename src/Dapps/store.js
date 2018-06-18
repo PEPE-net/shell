@@ -21,6 +21,8 @@ import store from 'store';
 import Contracts from '@parity/shared/lib/contracts';
 import { fetchBuiltinApps, fetchLocalApps, fetchRegistryAppIds, fetchRegistryApp, subscribeToChanges } from '../util/dapps';
 
+import hashFetch from '../util/hashFetch';
+
 const LS_KEY_DISPLAY = 'displayApps';
 const LS_KEY_EXTERNAL_ACCEPT = 'acceptExternal';
 const BUILTIN_APPS_KEY = 'BUILTIN_APPS_KEY';
@@ -122,6 +124,17 @@ export default class DappsStore extends EventEmitter {
         }
 
         return this.fetchRegistryApp(dappReg, id, true);
+      })
+      .then((app) => {
+        if (app.type === 'network') {
+          console.log('app', app, ' is network');
+          return hashFetch(this._api, app.contentHash, 'dapp').then((path) => {
+            app.localUrl = `file://${path}/index.html`;
+            console.log('adding local url', app.localUrl);
+            return app;
+          }).catch(e => { console.log('Error loading dapp [todo consistent error naming]', e); });
+        }
+        return app;
       })
       .then((app) => {
         this.emit('loaded', app);

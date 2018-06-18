@@ -149,7 +149,6 @@ export default class Dapp extends Component {
   }
 
   render () {
-    const { dappsUrl } = this.context.api;
     const { params } = this.props;
     const { app, loading } = this.state;
 
@@ -170,17 +169,12 @@ export default class Dapp extends Component {
       );
     }
 
-    let src = null;
+    let src = `${app.localUrl}?appId=${app.id}`;
 
-    switch (app.type) {
-      case 'local':
-      case 'builtin':
-        src = `${app.localUrl}?appId=${app.id}`;
-        break;
+    if (app.type == 'network') {
+      // pas sûr si render c'est le mieux ; constructeur peut-être mieux
+      /*
 
-      case 'network':
-
-          /*
 et sur la page de la dapp:
 (in the store) @TODO
   // evtl onprogress callback app.progress = 0.4;
@@ -191,8 +185,7 @@ et sur la page de la dapp:
   sounds good
 
     */
-        src = `${dappsUrl}/${app.contentHash}/`;
-        break;
+   // todo show "loading" si pas de localUrl et type=network et contentHash?
     }
 
     let hash = '';

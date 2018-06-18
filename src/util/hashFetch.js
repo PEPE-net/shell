@@ -18,9 +18,8 @@ const fs = window.require('fs');
 const util = window.require('util');
 const path = window.require('path');
 const https = window.require('https');
-// const unzip = require('unzip');
 
-import unzip from 'unzip';
+import unzip from 'unzipper';
 
 import { getHashFetchPath } from './host';
 

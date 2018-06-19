@@ -18,24 +18,76 @@ const fs = window.require('fs');
 const util = window.require('util');
 const path = window.require('path');
 const https = window.require('https');
+const { ensureDir: fsEnsureDir, emptyDir: fsEmptyDir } = require('fs-extra');
+// ou import x as y
 
 import unzip from 'unzipper';
 
 import { getHashFetchPath } from './host';
-
 import Contracts from '@parity/shared/lib/contracts';
 import { sha3 } from '@parity/api/lib/util/sha3';
 import { bytesToHex } from '@parity/api/lib/util/format';
 
 const fsExists = util.promisify(fs.stat);
+const fsStat = util.promisify(fs.stat);
 const fsRename = util.promisify(fs.rename);
-const fsWriteFile = util.promisify(fs.writeFile);
 const fsReadFile = util.promisify(fs.readFile);
+const fsWriteFile = util.promisify(fs.writeFile);
 const fsUnlink = util.promisify(fs.unlink);
 const fsReaddir = util.promisify(fs.readdir);
 const fsRmdir = util.promisify(fs.rmdir);
+const httpsGet = util.promisify(https.get);
 
-export class ExpoRetry {
+function unzipTo (zipPath, extractPath) {
+  return new Promise((resolve, reject) => {
+    const unzipParser = unzip.Extract({ path: extractPath });
+
+    fs.createReadStream(zipPath).pipe(unzipParser);
+
+    unzipParser.on('error', function (e) {
+      reject(e);
+    });
+
+    unzipParser.on('close', resolve);
+  });
+}
+
+function checkHashMatch (hash, path) {
+  return fsReadFile(path).then(content => {
+    if (sha3(content) !== `0x${hash}`) { throw new Error(`Hashes don't match: expected 0x${hash}, got ${sha3(content)}`); }
+  });
+}
+
+const MAX_DOWNLOADED_FILE_SIZE = 10485760; // 20MB
+
+function download (url, destinationPath) {
+  // Will replace any existing file
+  const file = fs.createWriteStream(destinationPath);
+
+  return httpsGet(url).then(response => new Promise((resolve, reject) => {
+    var size = 0;
+
+    response.on('data', function (data) {
+      size += data.length;
+
+      if (size > MAX_DOWNLOADED_FILE_SIZE) {
+        response.destroy();
+        response.unpipe(file);
+        fsUnlink(destinationPath);
+        reject(`File download aborted: exceeded maximum size of ${MAX_DOWNLOADED_FILE_SIZE} bytes`);
+      }
+    });
+
+    response.pipe(file);
+
+    file.on('finish', function () {
+      file.close(() => resolve());
+    });
+  }));
+}
+
+// Handle exponential retry for failed download attempts
+class ExpoRetry {
   static instance = null;
   needWrite = false;
   writeQueue = Promise.resolve();
@@ -73,18 +125,19 @@ export class ExpoRetry {
     return `${hash}:${url}`;
   }
 
-  canAttemptDownload (hash, url) { // return bool
+  canAttemptDownload (hash, url) {
     const id = this._getId(hash, url);
 
-        // Never tried downloading the file
+    // Never tried downloading the file
     if (!(id in this.failHistory) || !this.failHistory[id].attempts.length) {
       return true;
     }
 
+    // Already failed at downloading the file: check if we can retry now
     const attemptsCount = this.failHistory[id].attempts.length;
     const latestAttemptDate = this.failHistory[id].attempts.slice(-1).timestamp;
 
-    if (Date.now() > latestAttemptDate + Math.pow(2, Math.max(16, attemptsCount)) * 30 * 1000) { // Start at 30sec, limit to 22 days max
+    if (Date.now() > latestAttemptDate + Math.pow(2, Math.max(16, attemptsCount)) * 3000) { // Start at 30sec, limit to 22 days max
       return true;
     }
 
@@ -97,167 +150,151 @@ export class ExpoRetry {
     this.failHistory[id] = this.failHistory[id] || { attempts: [] };
     this.failHistory[id].attempts.push({ timestamp: Date.now() });
 
+    // Once the ongoing write is finished, write anew with the updated contents
     this.needWrite = true;
     this.queue = this.queue.then(() => {
+      // Write once (the latest contents) even if there are stacked pending promises
       if (this.needWrite) {
         this.needWrite = false;
         return fsWriteFile(this.getFilePath(), JSON.stringify(this.failHistory));
       }
-      // Skip intermediary promises in the chain
-    }); // ou alors resolve avec un count (latestcount)
-    // mais il faut toujours que je stocke quelque chose en plus (latestcount/needwrite)..hum
+    });
   }
 }
 
-function checkHashMatch (hash, path) {
-  return fsReadFile(path).then(content => {
-    if (sha3(content) !== `0x${hash}`) { throw new Error(`Hashes don't match: expected 0x${hash}, got ${sha3(content)}`); }
-  });
+function registerFailedAttemptAndThrow (hash, url, e) {
+  ExpoRetry.get().registerFailedAttempt(hash, url);
+  throw e;
 }
 
+// mettre dans la classe ou non?
 function queryRegistryAndDownload (api, hash) { // todo check expected ici
   const { githubHint } = Contracts.get(api);
 
   return githubHint.getEntry(`0x${hash}`).then(([slug, commitBytes, author]) => {
     const commit = bytesToHex(commitBytes);
 
-    console.log('SLUG COMMIT AUTHOR', slug, commit, author);
-
-    if (!slug && commit === '0x0000000000000000000000000000000000000000' && author === '0x0000000000000000000000000000000000000000') {
-      throw new Error(`No GitHub Hint entry found.`);
+    if (!slug) {
+      if (commit === '0x0000000000000000000000000000000000000000' && author === '0x0000000000000000000000000000000000000000') {
+        throw new Error(`No GitHub Hint entry found.`);
+      } else {
+        throw new Error(`GitHub Hint entry has empty slug.`);
+      }
     }
-    if (commit === '0x0000000000000000000000000000000000000000') {
-      console.log('repo slug is url to a file..');
-      // The repo-slug is the URL to a file
+
+    let url;
+    let zip;
+
+    if (commit === '0x0000000000000000000000000000000000000000') { // The slug is the URL to a file
       // @todo check is it starts with http ?
-      if (!slug) { throw new Error(`GitHub Hint entry has no URL.`); }
-      if (ExpoRetry.get().canAttemptDownload(hash, slug) === false) {
-        throw new Error('ExpoRetry rejected.');
-      }
-      return downloadUrl(hash, slug); // todo move cette fonction à la fin, comme ça on a if exporetry qu'une seule fois
-    } else if (commit === '0x0000000000000000000000000000000000000001') {
-      // The repo-slug is the URL to a zip file with a dapp
-      console.log('zipdapp', slug);
-      if (ExpoRetry.get().canAttemptDownload(hash, slug) === false) {
-        throw new Error('ExpoRetry rejected.');
-      }
-      return downloadUrl(hash, slug, true);
-    } else {
-      // Dapp stored in GitHub
-      const url = `https://codeload.github.com/${slug}/zip/${commit.substr(2)}`;
-
-      console.log('Downloading dapp from GitHub', url);
-      if (ExpoRetry.get().canAttemptDownload(hash, slug) === false) {
-        throw new Error('ExpoRetry rejected.');
-      }
-      return downloadUrl(hash, url, true); // todo use object instead of true arg?
+      if (!slug) { throw new Error(`GitHub Hint entry is a link to a file but has no URL.`); }
+      url = slug;
+      zip = false;
+    } else if (commit === '0x0000000000000000000000000000000000000001') { // The slug is the URL to a dapp zip file
+      url = slug;
+      zip = true;
+    } else { // The slug is the `owner/repo` of a dapp stored in GitHub
+      url = `https://codeload.github.com/${slug}/zip/${commit.substr(2)}`;
+      zip = true;
     }
+
+    if (ExpoRetry.get().canAttemptDownload(hash, url) === false) {
+      throw new Error(`Previous attempt at downloading ${hash} from ${url} failed; retry delay time not yet reached.`);
+    }
+
+    return hashDownload(hash, url, zip); // use object instead of true arg?
   });
 }
 
-function download (url, { directory, filename }) {
-  if (!url || !filename || !directory) {
-    return Promise.reject(`download: Invalid url (${url}) or directory (${directory}) or filename (${filename})`);
-  }
-
-  const dest = path.join(directory, filename);
-
-  return new Promise((resolve, reject) => {
-    var file = fs.createWriteStream(dest);
-
-    // todo disable cors
-    https.get(url, function (response) {
-      var size = 0;
-      var maxSize = 1048576; // 2MB
-
-      maxSize *= 10; // 20MB
-
-      response.on('data', function (data) {
-        size += data.length;
-
-        if (size > maxSize) {
-          console.log('Resource stream exceeded limit (' + size + ')');
-
-          response.destroy(); // Abort the response (close and cleanup the stream)
-          response.unpipe(file);
-          fsUnlink(dest); // Delete the file we were downloading the data to
-          reject('FILE IS TOO BIG');
-        }
-      });
-
-      response.pipe(file);
-      file.on('finish', function () {
-        file.close(() => resolve());
-      });
-    });
-  });
-}
-
-function unzip_ (zippath, opts) {
-  return new Promise((resolve, reject) => {
-    var unzipParser = unzip.Extract({ path: opts.dir });
-
-    fs.createReadStream(zippath).pipe(unzipParser);
-    unzipParser.on('error', function (err) {
-      reject(err);
-    });
-
-    unzipParser.on('close', resolve);
-  });
-}
-
-function downloadUrl (hash, url, zip = false) {
+function hashDownload (hash, url, zip = false) {
   const tempFilename = `${hash}.part`;
-  // todo use const "tempPartPath"
+  const tempPath = path.join(getHashFetchPath(), 'partial', tempFilename); // todo make sure filename cannot be '../' or something
 
-  console.log('downloadUrl', tempFilename);
-  return download(url, {
-    directory: path.join(getHashFetchPath(), 'partial'),
-    filename: tempFilename // todo make sure filename cannot be '../' or something
-  }) // todo error handling (can be upstream)
-      .then(() => checkHashMatch(hash, path.join(getHashFetchPath(), 'partial', tempFilename))) // @TODO DELETE .PART FILE AND USE BLACKLIST IF FAIL
-      .then(() => {
-        if (zip) {
-          // todo use const "extractTempPath"
-          return unzip_(path.join(getHashFetchPath(), 'partial', tempFilename), { dir: path.join(getHashFetchPath(), 'partial-extract', tempFilename) }) // todo dir should be containing dir ; function concatentes with filename
-            .then(() => fsUnlink(path.join(getHashFetchPath(), 'partial', tempFilename))) // TODO même si fail
+  const finalPath = path.join(getHashFetchPath(), 'files', hash);
+
+  return download(url, tempPath)
+      .then(() => checkHashMatch(hash, tempPath).catch(e => registerFailedAttemptAndThrow(hash, url, e)))
+      .then(() => { // Hashes match
+        if (!zip) {
+          return fsRename(tempPath, finalPath);
+        } else {
+          const extractPath = path.join(getHashFetchPath(), 'partial-extract', tempFilename);
+
+          return unzipTo(tempPath, extractPath)
+            .then(() => fsUnlink(tempPath))
             .then(() => { // todo call a functional function (needs to be inside unzip)
-              console.log('gonna readdir...');
-              return fsReaddir(path.join(getHashFetchPath(), 'partial-extract', tempFilename))
+              // npm debug todo
+              return fsReaddir(extractPath)
+                  .then(filenames => // Gather info about files
+                    Promise.all(filenames.map(filename => {
+                      const filePath = path.join(extractPath, filename);
+
+                      return fsStat(filePath).then(stat => ({ isDirectory: stat.isDirectory(), filePath, filename }));
+                    }))
+                  )
                   .then(filenames => {
-                    if (filenames.length === 1 && filenames[0] !== 'index.html') {
-                      // We assume is inside a root folder in the archive
-                      // @TODO quid si c'est un fichier? on sert le fichier/index.html, risque?
-                      console.log('renaming..');
-                      return fsRename(path.join(getHashFetchPath(), 'partial-extract', tempFilename, filenames[0]), path.join(getHashFetchPath(), 'files', hash))
-                        .then(() => {
-                          console.log('removing dir..');
-                          return fsRmdir(path.join(getHashFetchPath(), 'partial-extract', tempFilename));
-                        });
+                    if (filenames.length === 1 && filenames[0].isDirectory) {
+                      // Zip file with a root folder
+                      const rootFolderPath = filenames[0].filePath;
+
+                      return fsRename(rootFolderPath, finalPath)
+                        .then(() => fsRmdir(extractPath));
                     } else {
-                      console.log('zip doesnt contain root folder');
-                      fsRename(path.join(getHashFetchPath(), 'partial-extract', tempFilename), path.join(getHashFetchPath(), 'files', hash));
+                      // Zip file without root folder
+                      return fsRename(extractPath, finalPath);
                     }
                   });
             });
-        } else {
-          return fsRename(path.join(getHashFetchPath(), 'partial', tempFilename), path.join(getHashFetchPath(), 'files', hash));
         }
-      }); // ^ je peux avoir deux directories hashfetch/dapps et hashfetch/files aussi
+      });
 }
 
-const promises = {};
+export default class HashFetch {
+  static instance = null;
+  initialize = null;
+  promises = {};
 
-// Returns a Promise that resolves with the path to the file or directory
-// @TODO use expected to make sure we don't get a dapp when fetching a file or vice versa
-export default function hashFetch (api, hash, expected /* 'file' || 'dapp' */) {
-  if (hash in promises) { return promises[hash]; }
+  static get () {
+    if (!HashFetch.instance) {
+      HashFetch.instance = new HashFetch();
+    }
 
-  promises[hash] = fsExists(path.join(getHashFetchPath(), 'files', hash)) // todo either file or directory. BUT CHECK IF IT'S A DIRECTORY IF expected IS A DIRECTORY. IF THE DIRECTORY DOESN'T EXIST THEN WE ASSUME IT'S BEING UNPACKED.
-      .catch(() => queryRegistryAndDownload(api, hash))
-      .then(() => path.join(getHashFetchPath(), 'files', hash));
+    return HashFetch.instance;
+  }
 
-  return promises[hash];
+  constructor () {
+    this.initialize = this._initialize();
+  }
+
+  _initialize () {
+    const hashFetchPath = getHashFetchPath();
+
+    return fsEnsureDir(hashFetchPath).then(() =>
+      Promise.all([
+        fsEnsureDir(path.join(hashFetchPath, 'files')),
+        fsEmptyDir(path.join(hashFetchPath, 'partial')),
+        fsEmptyDir(path.join(hashFetchPath, 'partial-extract')),
+        ExpoRetry.get().load()
+      ]));
+  }
+
+  // Returns a Promise that resolves with the path to the file or directory
+  // @TODO use expected to make sure we don't get a dapp when fetching a file or vice versa
+  // save api in instance?
+  fetch (api, hash, expected) { // expected is either 'file' or 'dapp'
+    this.initialize.then(() => {
+      const filePath = path.join(getHashFetchPath(), 'files', hash);
+      // plutôt faire (pour existant) this.promises[hash].catch(() => X)
+      // problème: l'erreur de la 1ère promesse ne va pas remonter
+
+      if (!(hash in this.promises)) { // problème avec système actuel c'est que ça va pas retry au sein de la même session (ça renvoie rejected promise) ; ce qu'on veut faire c'est ne pas relancer si une promesse est en cours : simplement check si la promise est settled
+        this.promises[hash] = fsExists(filePath) // todo either file or directory. BUT CHECK IF IT'S A DIRECTORY IF expected IS A DIRECTORY. IF THE DIRECTORY DOESN'T EXIST THEN WE ASSUME IT'S BEING UNPACKED.
+          .catch(() => queryRegistryAndDownload(api, hash))
+          .then(() => filePath);
+      }
+      return this.promises[hash];
+    });
+  }
 }
 
 // todo error handling, & doc if necessary

@@ -127,12 +127,12 @@ export default class DappsStore extends EventEmitter {
       })
       .then((app) => {
         if (app.type === 'network') {
-          console.log('app', app, ' is network');
-          return hashFetch(this._api, app.contentHash, 'dapp').then((path) => {
-            app.localUrl = `file://${path}/index.html`;
-            console.log('adding local url', app.localUrl);
-            return app;
-          }).catch(e => { console.log('Error loading dapp [todo consistent error naming]', e); });
+          return hashFetch(this._api, app.contentHash, 'dapp')
+            .then((path) => {
+              app.localUrl = `file://${path}/index.html`;
+              return app;
+            })
+            .catch(e => { console.error(`Error loading dapp ${id}`, e); });
         }
         return app;
       })

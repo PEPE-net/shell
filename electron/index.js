@@ -17,7 +17,7 @@
 const electron = require('electron');
 const path = require('path');
 const url = require('url');
-const { ensureDir: fsEnsureDir, emptyDir: fsEmptyDir } = require('fs-extra');
+const { ensureDir: fsEnsureDir } = require('fs-extra');
 
 const addMenu = require('./menu');
 const { cli } = require('./cli');
@@ -26,43 +26,19 @@ const fetchParity = require('./operations/fetchParity');
 const handleError = require('./operations/handleError');
 const messages = require('./messages');
 const { killParity } = require('./operations/runParity');
-const { getHashFetchPath, getLocalDappsPath } = require('./utils/paths');
-const { ExpoRetry } = require('../src/util/hashFetch');
+const { getLocalDappsPath } = require('./utils/paths');
 const { name: appName } = require('../package.json');
 
 const { app, BrowserWindow, ipcMain, session } = electron;
 
 let mainWindow;
 
-function prepareHashFetchFolders () {
-  const hashFetchPath = getHashFetchPath();
-
-  return fsEnsureDir(hashFetchPath).then(() =>
-  Promise.all([
-    fsEnsureDir(path.join(hashFetchPath, 'files')),
-    fsEmptyDir(path.join(hashFetchPath, 'partial')),
-    fsEmptyDir(path.join(hashFetchPath, 'partial-extract'))
-  ]));
-}
-
-function prepareHashFetch () {
-  return Promise.all([prepareHashFetchFolders(), ExpoRetry.get().load()]);
-} // todomove to hashfetch:prepare
-
-function prepareCacheFolder () {
-  const localDappsPath = getLocalDappsPath();
-
-  return fsEnsureDir(localDappsPath);
-}
-
 function runApp () {
   doesParityExist()
     .catch(() => fetchParity(mainWindow)) // Install parity if not present
     .catch(handleError); // Errors should be handled before, this is really just in case
 
-  // The app expects cache and hashFetch folders to be prepared already
-  return Promise.all([prepareHashFetch(), prepareCacheFolder()])
-  .then(createWindow).catch(e => console.error(e));
+  return fsEnsureDir(getLocalDappsPath()).then(createWindow).catch(e => console.error(e));
 }
 
 function createWindow () {

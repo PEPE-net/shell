@@ -18,11 +18,6 @@ const path = require('path');
 const electron = require('electron');
 
 module.exports = {
-  getHashFetchPath: () => {
-    const userData = electron.app.getPath('userData');
-
-    return path.join(userData, 'hashfetch');
-  },
   getLocalDappsPath: () => {
     const userData = electron.app.getPath('userData');
 

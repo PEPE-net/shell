@@ -83,6 +83,24 @@ function download (url, { directory, filename }) {
 
     // todo disable cors
     https.get(url, function (response) {
+      var size = 0;
+      var maxSize = 1048576; // 2MB
+
+      maxSize *= 10; // 20MB
+
+      response.on('data', function (data) {
+        size += data.length;
+
+        if (size > maxSize) {
+          console.log('Resource stream exceeded limit (' + size + ')');
+
+          response.destroy(); // Abort the response (close and cleanup the stream)
+          response.unpipe(file);
+          fsUnlink(dest); // Delete the file we were downloading the data to
+          reject('FILE IS TOO BIG');
+        }
+      });
+
       response.pipe(file);
       file.on('finish', function () {
         file.close(() => resolve());

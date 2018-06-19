@@ -100,7 +100,7 @@ function unzip_ (zippath, opts) {
       reject(err);
     });
 
-    unzipParser.on('close', resolve());
+    unzipParser.on('close', resolve);
   });
 }
 
@@ -120,14 +120,20 @@ function downloadUrl (hash, url, zip = false) {
           return unzip_(path.join(getHashFetchPath(), 'partial', tempFilename), { dir: path.join(getHashFetchPath(), 'partial-extract', tempFilename) }) // todo dir should be containing dir ; function concatentes with filename
             .then(() => fsUnlink(path.join(getHashFetchPath(), 'partial', tempFilename))) // TODO même si fail
             .then(() => { // todo call a functional function (needs to be inside unzip)
+              console.log('gonna readdir...');
               return fsReaddir(path.join(getHashFetchPath(), 'partial-extract', tempFilename))
                   .then(filenames => {
                     if (filenames.length === 1 && filenames[0] !== 'index.html') {
                       // We assume is inside a root folder in the archive
                       // @TODO quid si c'est un fichier? on sert le fichier/index.html, risque?
+                      console.log('renaming..');
                       return fsRename(path.join(getHashFetchPath(), 'partial-extract', tempFilename, filenames[0]), path.join(getHashFetchPath(), 'files', hash))
-                        .then(() => fsRmdir(path.join(getHashFetchPath(), 'partial-extract', tempFilename)));
+                        .then(() => {
+                          console.log('removing dir..');
+                          return fsRmdir(path.join(getHashFetchPath(), 'partial-extract', tempFilename));
+                        });
                     } else {
+                      console.log('zip doesnt contain root folder');
                       fsRename(path.join(getHashFetchPath(), 'partial-extract', tempFilename), path.join(getHashFetchPath(), 'files', hash));
                     }
                   });

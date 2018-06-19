@@ -93,7 +93,7 @@ function download (url, { directory, filename }) {
 
 function unzip_ (zippath, opts) {
   return new Promise((resolve, reject) => {
-    var unzipParser = unzip.Extract({ path: path.join(opts.dir, opts.filename) });
+    var unzipParser = unzip.Extract({ path: opts.dir });
 
     fs.createReadStream(zippath).pipe(unzipParser);
     unzipParser.on('error', function (err) {
@@ -105,49 +105,50 @@ function unzip_ (zippath, opts) {
 }
 
 function downloadUrl (hash, url, zip = false) {
-  const tempFilename = `${hash}${zip ? '.zip' : ''}.part`;
+  const tempFilename = `${hash}.part`;
+  // todo use const "tempPartPath"
 
+  console.log('downloadUrl', tempFilename);
   return download(url, {
-    directory: getHashFetchPath(),
+    directory: path.join(getHashFetchPath(), 'partial'),
     filename: tempFilename // todo make sure filename cannot be '../' or something
   }) // todo error handling (can be upstream)
-      .then(() => checkHashMatch(hash, path.join(getHashFetchPath(), tempFilename))) // @TODO DELETE .PART FILE AND USE BLACKLIST IF FAIL
+      .then(() => checkHashMatch(hash, path.join(getHashFetchPath(), 'partial', tempFilename))) // @TODO DELETE .PART FILE AND USE BLACKLIST IF FAIL
       .then(() => {
-        if (zip) { // @todo unzipping needs to be moved to operations/downloadFile
-          const tempFolderName = `${hash}.part`;
-
-          return unzip_(path.join(getHashFetchPath(), tempFilename), { dir: path.join(getHashFetchPath(), tempFolderName), filename: tempFolderName, fs }) // todo dir should be containing dir ; function concatentes with filename
-            .then(() => fsUnlink(path.join(getHashFetchPath(), tempFilename)))
+        if (zip) {
+          // todo use const "extractTempPath"
+          return unzip_(path.join(getHashFetchPath(), 'partial', tempFilename), { dir: path.join(getHashFetchPath(), 'partial-extract', tempFilename) }) // todo dir should be containing dir ; function concatentes with filename
+            .then(() => fsUnlink(path.join(getHashFetchPath(), 'partial', tempFilename))) // TODO même si fail
             .then(() => { // todo call a functional function (needs to be inside unzip)
-              return fsReaddir(path.join(getHashFetchPath(), tempFolderName))
+              return fsReaddir(path.join(getHashFetchPath(), 'partial-extract', tempFilename))
                   .then(filenames => {
                     if (filenames.length === 1 && filenames[0] !== 'index.html') {
                       // We assume is inside a root folder in the archive
                       // @TODO quid si c'est un fichier? on sert le fichier/index.html, risque?
-                      return fsRename(path.join(getHashFetchPath(), tempFolderName, filenames[0]), path.join(getHashFetchPath(), hash))
-                        .then(() => fsRmdir(path.join(getHashFetchPath(), tempFolderName)));
+                      return fsRename(path.join(getHashFetchPath(), 'partial-extract', tempFilename, filenames[0]), path.join(getHashFetchPath(), 'files', hash))
+                        .then(() => fsRmdir(path.join(getHashFetchPath(), 'partial-extract', tempFilename)));
                     } else {
-                      fsRename(path.join(getHashFetchPath(), tempFolderName), path.join(getHashFetchPath(), tempFilename));
+                      fsRename(path.join(getHashFetchPath(), 'partial-extract', tempFilename), path.join(getHashFetchPath(), 'files', hash));
                     }
                   });
             });
         } else {
-          return fsRename(path.join(getHashFetchPath(), tempFilename), path.join(getHashFetchPath(), hash));
+          return fsRename(path.join(getHashFetchPath(), 'partial', tempFilename), path.join(getHashFetchPath(), 'files', hash));
         }
       }); // ^ je peux avoir deux directories hashfetch/dapps et hashfetch/files aussi
 }
 
-// todo promise needs to be kept if we go back and come again, cf watching for part?
-const promises = {}; // never gets killed, ye?
+const promises = {};
 
 // Returns a Promise that resolves with the path to the file or directory
 // @TODO use expected to make sure we don't get a dapp when fetching a file or vice versa
 export default function hashFetch (api, hash, expected /* 'file' || 'dapp' */) {
   if (hash in promises) { return promises[hash]; }
 
-  promises[hash] = fsExists(path.join(getHashFetchPath(), hash)) // todo either file or directory. BUT CHECK IF IT'S A DIRECTORY IF expected IS A DIRECTORY. IF THE DIRECTORY DOESN'T EXIST THEN WE ASSUME IT'S BEING UNPACKED.
+  promises[hash] = fsExists(path.join(getHashFetchPath(), 'files', hash)) // todo either file or directory. BUT CHECK IF IT'S A DIRECTORY IF expected IS A DIRECTORY. IF THE DIRECTORY DOESN'T EXIST THEN WE ASSUME IT'S BEING UNPACKED.
+  // todo here check canAttemptDownload()
       .catch(() => queryRegistryAndDownload(api, hash))
-      .then(() => path.join(getHashFetchPath(), hash));
+      .then(() => path.join(getHashFetchPath(), 'files', hash));
 
   return promises[hash];
 }

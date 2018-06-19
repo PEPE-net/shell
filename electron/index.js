@@ -32,8 +32,8 @@ const { name: appName } = require('../package.json');
 
 const { app, BrowserWindow, ipcMain, session } = electron;
 
-const fsUnlink = util.promisify(fs.unlink);
-const fsReaddir = util.promisify(fs.readdir);
+// const fsUnlink = util.promisify(fs.unlink);
+// const fsReaddir = util.promisify(fs.readdir);
 const fsExists = util.promisify(fs.stat); // eslint-disable-line
 const fsMkdir = util.promisify(fs.mkdir);
 
@@ -43,17 +43,31 @@ function prepareHashFetchFolder () {
   const hashFetchPath = getHashFetchPath();
 
   return fsExists(hashFetchPath)
-    .then(() =>
-      fsReaddir(hashFetchPath)
-        .then(filenames =>
-          Promise.all(
-            filenames
-              .filter(filename => filename.endsWith('.part'))
-              .map(filename => fsUnlink(path.join(hashFetchPath, filename)))
-          ))
-        .catch(e => { console.error('Removing stale part files failed', e); })
+    .then(() => {
+    }
+      // fsReaddir(hashFetchPath)
+        // .then(filenames => 1
+          // Promise.all(
+          //   filenames
+          //     .filter(filename => filename.endsWith('.part'))
+          //     .map(filename => fsUnlink(path.join(hashFetchPath, filename)))
+          // )
+          // )
+        // .catch(e => { console.error('Removing stale part files failed', e); })
+
+      // @TODO REMOVE ALL FILES FROM partial/ partial-extract/
+
     )
-    .catch(() => fsMkdir(hashFetchPath));
+    .catch(() => {
+      console.log('doesnt exist');
+
+      return fsMkdir(hashFetchPath)
+        .then(() => Promise.all([
+          fsMkdir(path.join(hashFetchPath, 'partial')), // where the files are downloaded
+          fsMkdir(path.join(hashFetchPath, 'partial-extract')), // where the zip files are temporarily extracted
+          fsMkdir(path.join(hashFetchPath, 'files')) // final place
+        ]));
+    });
 }
 
 function prepareCacheFolder () {
@@ -69,7 +83,8 @@ function runApp () {
     .catch(handleError); // Errors should be handled before, this is really just in case
 
   // The app expects cache and hashFetch folders to be prepared already
-  Promise.all([prepareHashFetchFolder, prepareCacheFolder]).then(createWindow);
+  return Promise.all([prepareHashFetchFolder(), prepareCacheFolder()])
+  .then(createWindow).catch(e => console.error(e));
 }
 
 function createWindow () {

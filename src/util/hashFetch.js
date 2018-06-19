@@ -29,10 +29,85 @@ import { bytesToHex } from '@parity/api/lib/util/format';
 
 const fsExists = util.promisify(fs.stat);
 const fsRename = util.promisify(fs.rename);
+const fsWriteFile = util.promisify(fs.writeFile);
 const fsReadFile = util.promisify(fs.readFile);
 const fsUnlink = util.promisify(fs.unlink);
 const fsReaddir = util.promisify(fs.readdir);
 const fsRmdir = util.promisify(fs.rmdir);
+
+export class ExpoRetry {
+  static instance = null;
+  needWrite = false;
+  writeQueue = Promise.resolve();
+  failHistory = {}; // { "hash:url": {attempts: [{timestamp: _}] } }
+
+  static get () {
+    if (!ExpoRetry.instance) {
+      ExpoRetry.instance = new ExpoRetry();
+    }
+
+    return ExpoRetry.instance;
+  }
+
+  getFilePath () {
+    return path.join(getHashFetchPath(), 'fail_history.json');
+  }
+
+  load () { // = () { ?
+    const filePath = this.getFilePath();
+
+    return fsExists(filePath)
+        .then(() => fsReadFile(filePath))
+        .then(content => {
+          try {
+            this.failHistory = JSON.parse(content);
+          } catch (e) {
+            console.error(`Couldn't parse JSON for ExpoRetry file ${filePath}`, e);
+            return {};
+          }
+        })
+        .catch(() => fsWriteFile(filePath, '{}'));
+  }
+
+  _getId (hash, url) {
+    return `${hash}:${url}`;
+  }
+
+  canAttemptDownload (hash, url) { // return bool
+    const id = this._getId(hash, url);
+
+        // Never tried downloading the file
+    if (!(id in this.failHistory) || !this.failHistory[id].attempts.length) {
+      return true;
+    }
+
+    const attemptsCount = this.failHistory[id].attempts.length;
+    const latestAttemptDate = this.failHistory[id].attempts.slice(-1).timestamp;
+
+    if (Date.now() > latestAttemptDate + Math.pow(2, Math.max(16, attemptsCount)) * 30 * 1000) { // Start at 30sec, limit to 22 days max
+      return true;
+    }
+
+    return false;
+  }
+
+  registerFailedAttempt (hash, url) {
+    const id = this._getId(hash, url);
+
+    this.failHistory[id] = this.failHistory[id] || { attempts: [] };
+    this.failHistory[id].attempts.push({ timestamp: Date.now() });
+
+    this.needWrite = true;
+    this.queue = this.queue.then(() => {
+      if (this.needWrite) {
+        this.needWrite = false;
+        return fsWriteFile(this.getFilePath(), JSON.stringify(this.failHistory));
+      }
+      // Skip intermediary promises in the chain
+    }); // ou alors resolve avec un count (latestcount)
+    // mais il faut toujours que je stocke quelque chose en plus (latestcount/needwrite)..hum
+  }
+}
 
 function checkHashMatch (hash, path) {
   return fsReadFile(path).then(content => {
@@ -56,16 +131,25 @@ function queryRegistryAndDownload (api, hash) { // todo check expected ici
       // The repo-slug is the URL to a file
       // @todo check is it starts with http ?
       if (!slug) { throw new Error(`GitHub Hint entry has no URL.`); }
-      return downloadUrl(hash, slug);
+      if (ExpoRetry.get().canAttemptDownload(hash, slug) === false) {
+        throw new Error('ExpoRetry rejected.');
+      }
+      return downloadUrl(hash, slug); // todo move cette fonction à la fin, comme ça on a if exporetry qu'une seule fois
     } else if (commit === '0x0000000000000000000000000000000000000001') {
       // The repo-slug is the URL to a zip file with a dapp
       console.log('zipdapp', slug);
+      if (ExpoRetry.get().canAttemptDownload(hash, slug) === false) {
+        throw new Error('ExpoRetry rejected.');
+      }
       return downloadUrl(hash, slug, true);
     } else {
       // Dapp stored in GitHub
       const url = `https://codeload.github.com/${slug}/zip/${commit.substr(2)}`;
 
       console.log('Downloading dapp from GitHub', url);
+      if (ExpoRetry.get().canAttemptDownload(hash, slug) === false) {
+        throw new Error('ExpoRetry rejected.');
+      }
       return downloadUrl(hash, url, true); // todo use object instead of true arg?
     }
   });
@@ -170,7 +254,6 @@ export default function hashFetch (api, hash, expected /* 'file' || 'dapp' */) {
   if (hash in promises) { return promises[hash]; }
 
   promises[hash] = fsExists(path.join(getHashFetchPath(), 'files', hash)) // todo either file or directory. BUT CHECK IF IT'S A DIRECTORY IF expected IS A DIRECTORY. IF THE DIRECTORY DOESN'T EXIST THEN WE ASSUME IT'S BEING UNPACKED.
-  // todo here check canAttemptDownload()
       .catch(() => queryRegistryAndDownload(api, hash))
       .then(() => path.join(getHashFetchPath(), 'files', hash));
 

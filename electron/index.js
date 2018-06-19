@@ -15,10 +15,9 @@
 // along with Parity.  If not, see <http://www.gnu.org/licenses/>.
 
 const electron = require('electron');
-const fs = require('fs');
 const path = require('path');
 const url = require('url');
-const util = require('util');
+const { ensureDir: fsEnsureDir, emptyDir: fsEmptyDir } = require('fs-extra');
 
 const addMenu = require('./menu');
 const { cli } = require('./cli');
@@ -28,53 +27,32 @@ const handleError = require('./operations/handleError');
 const messages = require('./messages');
 const { killParity } = require('./operations/runParity');
 const { getHashFetchPath, getLocalDappsPath } = require('./utils/paths');
+const { ExpoRetry } = require('../src/util/hashFetch');
 const { name: appName } = require('../package.json');
 
 const { app, BrowserWindow, ipcMain, session } = electron;
 
-// const fsUnlink = util.promisify(fs.unlink);
-// const fsReaddir = util.promisify(fs.readdir);
-const fsExists = util.promisify(fs.stat); // eslint-disable-line
-const fsMkdir = util.promisify(fs.mkdir);
-
 let mainWindow;
 
-function prepareHashFetchFolder () {
+function prepareHashFetchFolders () {
   const hashFetchPath = getHashFetchPath();
 
-  return fsExists(hashFetchPath)
-    .then(() => {
-    }
-      // fsReaddir(hashFetchPath)
-        // .then(filenames => 1
-          // Promise.all(
-          //   filenames
-          //     .filter(filename => filename.endsWith('.part'))
-          //     .map(filename => fsUnlink(path.join(hashFetchPath, filename)))
-          // )
-          // )
-        // .catch(e => { console.error('Removing stale part files failed', e); })
-
-      // @TODO REMOVE ALL FILES FROM partial/ partial-extract/
-
-    )
-    .catch(() => {
-      console.log('doesnt exist');
-
-      return fsMkdir(hashFetchPath)
-        .then(() => Promise.all([
-          fsMkdir(path.join(hashFetchPath, 'partial')), // where the files are downloaded
-          fsMkdir(path.join(hashFetchPath, 'partial-extract')), // where the zip files are temporarily extracted
-          fsMkdir(path.join(hashFetchPath, 'files')) // final place
-        ]));
-    });
+  return fsEnsureDir(hashFetchPath).then(() =>
+  Promise.all([
+    fsEnsureDir(path.join(hashFetchPath, 'files')),
+    fsEmptyDir(path.join(hashFetchPath, 'partial')),
+    fsEmptyDir(path.join(hashFetchPath, 'partial-extract'))
+  ]));
 }
+
+function prepareHashFetch () {
+  return Promise.all([prepareHashFetchFolders(), ExpoRetry.get().load()]);
+} // todomove to hashfetch:prepare
 
 function prepareCacheFolder () {
   const localDappsPath = getLocalDappsPath();
 
-  return fsExists(localDappsPath)
-    .catch(() => fsMkdir(localDappsPath));
+  return fsEnsureDir(localDappsPath);
 }
 
 function runApp () {
@@ -83,7 +61,7 @@ function runApp () {
     .catch(handleError); // Errors should be handled before, this is really just in case
 
   // The app expects cache and hashFetch folders to be prepared already
-  return Promise.all([prepareHashFetchFolder(), prepareCacheFolder()])
+  return Promise.all([prepareHashFetch(), prepareCacheFolder()])
   .then(createWindow).catch(e => console.error(e));
 }
 

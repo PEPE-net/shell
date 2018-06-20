@@ -19,6 +19,7 @@ const util = window.require('util');
 const path = window.require('path');
 const https = window.require('https');
 const { ensureDir: fsEnsureDir, emptyDir: fsEmptyDir } = require('fs-extra');
+// const debug = require('debug')('hashfetch');
 // ou import x as y
 
 import unzip from 'unzipper';
@@ -38,7 +39,6 @@ const fsReaddir = util.promisify(fs.readdir);
 const fsRmdir = util.promisify(fs.rmdir);
 const httpsGet = util.promisify(https.get);
 
-// ExpoRetry-related
 function registerFailedAttemptAndThrow (hash, url, e) {
   ExpoRetry.get().registerFailedAttempt(hash, url);
   throw e;
@@ -50,7 +50,7 @@ function checkHashMatch (hash, path) {
   });
 }
 
-function unzipTo (zipPath, extractPath) {
+function rawUnzipTo (zipPath, extractPath) {
   return new Promise((resolve, reject) => {
     const unzipParser = unzip.Extract({ path: extractPath });
 
@@ -62,6 +62,33 @@ function unzipTo (zipPath, extractPath) {
 
     unzipParser.on('close', resolve);
   });
+}
+
+function unzipThroughTo (tempPath, extractPath, finalPath) {
+  return rawUnzipTo(tempPath, extractPath)
+    .then(() => fsUnlink(tempPath))
+    .then(() => {
+      return fsReaddir(extractPath)
+          .then(filenames => // Gather info about files
+            Promise.all(filenames.map(filename => {
+              const filePath = path.join(extractPath, filename);
+
+              return fsStat(filePath).then(stat => ({ isDirectory: stat.isDirectory(), filePath, filename }));
+            }))
+          )
+          .then(filenames => {
+            if (filenames.length === 1 && filenames[0].isDirectory) {
+              // Zip file with a root folder
+              const rootFolderPath = filenames[0].filePath;
+
+              return fsRename(rootFolderPath, finalPath)
+                .then(() => fsRmdir(extractPath));
+            } else {
+              // Zip file without root folder
+              return fsRename(extractPath, finalPath);
+            }
+          });
+    });
 }
 
 const MAX_DOWNLOADED_FILE_SIZE = 10485760; // 20MB
@@ -99,43 +126,19 @@ function hashDownload (hash, url, zip = false) {
   const finalPath = path.join(getHashFetchPath(), 'files', hash);
 
   return download(url, tempPath)
-      .then(() => checkHashMatch(hash, tempPath).catch(e => registerFailedAttemptAndThrow(hash, url, e)))
+      .then(() => checkHashMatch(hash, tempPath))
+      .catch(e => registerFailedAttemptAndThrow(hash, url, e))
       .then(() => { // Hashes match
         if (!zip) {
           return fsRename(tempPath, finalPath);
         } else {
           const extractPath = path.join(getHashFetchPath(), 'partial-extract', tempFilename);
 
-          return unzipTo(tempPath, extractPath)
-            .then(() => fsUnlink(tempPath))
-            .then(() => { // todo call a functional function (needs to be inside unzip)
-              // npm debug todo
-              return fsReaddir(extractPath)
-                  .then(filenames => // Gather info about files
-                    Promise.all(filenames.map(filename => {
-                      const filePath = path.join(extractPath, filename);
-
-                      return fsStat(filePath).then(stat => ({ isDirectory: stat.isDirectory(), filePath, filename }));
-                    }))
-                  )
-                  .then(filenames => {
-                    if (filenames.length === 1 && filenames[0].isDirectory) {
-                      // Zip file with a root folder
-                      const rootFolderPath = filenames[0].filePath;
-
-                      return fsRename(rootFolderPath, finalPath)
-                        .then(() => fsRmdir(extractPath));
-                    } else {
-                      // Zip file without root folder
-                      return fsRename(extractPath, finalPath);
-                    }
-                  });
-            });
+          return unzipThroughTo(tempPath, extractPath, finalPath);
         }
       });
 }
 
-// mettre dans la classe ou non?
 function queryRegistryAndDownload (api, hash, expected) {
   const { githubHint } = Contracts.get(api);
 
@@ -174,7 +177,6 @@ function queryRegistryAndDownload (api, hash, expected) {
   });
 }
 
-// @todo confirm with tomek
 function ensureMatchExpected (hash, filePath, expected) {
   return fsStat(filePath).then(stat => {
     if (stat.isDirectory() && expected === 'file') {
@@ -185,10 +187,12 @@ function ensureMatchExpected (hash, filePath, expected) {
   });
 }
 
+// Download a file or download and extract a dapp zip archive, using GitHub Hint
+// and the content hash of the file
 export default class HashFetch {
   static instance = null;
-  initialize = null;
-  promises = {}; // Unsettled or resolved promises
+  initialize = null; // Initialization promise
+  promises = {}; // Unsettled or resolved fetch promises only
 
   static get () {
     if (!HashFetch.instance) {
@@ -214,13 +218,15 @@ export default class HashFetch {
       ]));
   }
 
-  // @TODO save api in instance?
   // Returns a Promise that resolves with the path to the file or directory
-  fetch (api, hash, expected) { // expected is either 'file' or 'dapp'
+  // expected is either 'file' or 'dapp'
+  fetch (api, hash, expected) {
     this.initialize.then(() => {
       const filePath = path.join(getHashFetchPath(), 'files', hash);
 
       if (!(hash in this.promises)) {
+        // @TODO DOC: no ongoing fetch for this hash, and no resolved fetch
+        // :then fetch
         this.promises[hash] = fsExists(filePath)
           .catch(() => queryRegistryAndDownload(api, hash, expected))
           .then(() => ensureMatchExpected(hash, filePath, expected))

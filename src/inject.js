@@ -22,7 +22,7 @@ function getAppId () {
   // Local dapps served in development mode on a dedicated port: http://localhost:3001/?appId=LOCAL-dapp-name
   // Built-in dapps: file://path-to-shell/.build/dapps/0x0587.../index.html?appId=dapp-name
   // Built-in dapps when running Electron in dev mode: http://127.0.0.1:3000/dapps/v1/index.html?appId=dapp-name
-  // Network dapps: file:///home/username/.config/parity-ui/hashfetch/0x8075.../index.html?appId=dapp-name
+  // Network dapps: file:///home/username/.config/parity-ui/hashfetch/files/0x8075.../index.html?appId=dapp-name
   const fromQuery = qs.parse(window.location.search).appId;
 
   if (fromQuery) { return fromQuery; }

@@ -19,7 +19,7 @@ import { range, uniq } from 'lodash';
 
 import { bytesToHex } from '@parity/api/lib/util/format';
 import { getBuildPath, getLocalDappsPath } from './host';
-import hashFetch from './hashFetch';
+import HashFetch from './hashFetch';
 import isElectron from 'is-electron';
 
 import builtinApps from '../Dapps/dappsBuiltin.json';
@@ -214,8 +214,8 @@ export function fetchRegistryApp (api, dappReg, appId) {
       const manifestHash = bytesToHex(manifestId).substr(2);
 
       return Promise.all([
-        hashFetch(api, imageHash, 'file').catch((e) => { console.warn(`Couldn't download icon for dapp ${appId}`, e); }),
-        hashFetch(api, manifestHash, 'file').catch((e) => { throw new Error(`Couldn't download manifest ${e}`); })
+        HashFetch.get().fetch(api, imageHash, 'file').catch((e) => { console.warn(`Couldn't download icon for dapp ${appId}`, e); }),
+        HashFetch.get().fetch(api, manifestHash, 'file').catch((e) => { throw new Error(`Couldn't download manifest ${e}`); })
       ]).then(([imagePath, manifestPath]) =>
         fsReadFile(manifestPath)
           .then(r => {

@@ -218,21 +218,21 @@ export function fetchRegistryApp (api, dappReg, appId) {
         HashFetch.get().fetch(api, manifestHash, 'file').catch((e) => { throw new Error(`Couldn't download manifest ${e.toString()}`); })
       ]).then(([imagePath, manifestPath]) =>
         fsReadFile(manifestPath)
-          .then(r => {
+          .then(manifestJson => {
             try {
-              const manifest = JSON.parse(r);
+              const manifest = JSON.parse(manifestJson);
 
               if (!manifest.id) {
-                throw new Error(`manifest.json doesn't specify app id for network dapp ${appId} ${r}`);
+                throw new Error(`Missing app id in manifest.json ${manifest}`);
               }
 
-              return JSON.parse(r);
+              return manifest;
             } catch (e) {
-              throw new Error(`Couldn't parse manifest.json for network dapp ${appId} ${e}`);
+              throw new Error(`Couldn't parse manifest.json ${e}`);
             }
           })
           .catch(e => {
-            throw new Error(`Couldn't read manifest.json file locally (${manifestPath}) for network dapp ${appId} ${e}`);
+            throw new Error(`Couldn't read manifest.json file locally (${manifestPath}) ${e}`);
           })
           .then(manifest => {
             const { author, description, name, version } = manifest;
@@ -243,7 +243,7 @@ export function fetchRegistryApp (api, dappReg, appId) {
               description,
               name: name || '',
               version,
-              visible: true, // Visible by default
+              visible: true, // Display by default
               image: `file://${imagePath}`,
               contentHash
             };

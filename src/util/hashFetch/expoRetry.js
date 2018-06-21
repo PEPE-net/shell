@@ -18,21 +18,30 @@ const fs = window.require('fs');
 const util = window.require('util');
 const path = window.require('path');
 
-import { getHashFetchPath } from '../host';
-
 import { readJson as fsReadJson, writeJson as fsWriteJson } from 'fs-extra';
 const fsExists = util.promisify(fs.stat);
 
-// Handle exponential retry for failed download attempts
+import { getHashFetchPath } from '../host';
+
+// Handle retries with exponential delay for failed download attempts
 export default class ExpoRetry {
   static instance = null;
 
   // We store the URL to allow GH Hint URL updates for a given hash
   // to take effect immediately, and to disregard past failed attempts at
   // getting this file from other URLs.
-  failHistory = {}; // { [`${hash}:${url}`]: {attempts: [{timestamp: _}, ...] } }
+  // {
+  //   [`${hash}:${url}`]: {
+  //     attempts: [
+  //       {timestamp: 1529598899017},
+  //       ...
+  //     ]
+  //   },
+  //   ...
+  // }
+  failHistory = {};
 
-  // If true, failHistory was updated and needs to be written to disk
+  // If true, the failHistory var was updated and needs to be written to disk
   needWrite = false;
   writeQueue = Promise.resolve();
 
@@ -48,7 +57,7 @@ export default class ExpoRetry {
     return path.join(getHashFetchPath(), 'fail_history.json');
   }
 
-  _getId (hash, url) {
+  _getKey (hash, url) {
     return `${hash}:${url}`;
   }
 
@@ -59,31 +68,30 @@ export default class ExpoRetry {
         .then(() =>
           fsReadJson(filePath)
             .catch(e => {
-              console.error(`Couldn't parse JSON for ExpoRetry file ${filePath}`, e);
-              return {};
+              throw new Error(`Couldn't parse JSON for ExpoRetry file ${filePath} ${e}`);
             })
         )
         .then(failHistory => {
           this.failHistory = failHistory;
         })
-        .catch(() => fsWriteJson(filePath, {}));
+        .catch(() => fsWriteJson(filePath, this.failHistory));
   }
 
   canAttemptDownload (hash, url) {
-    const id = this._getId(hash, url);
+    const key = this._getKey(hash, url);
 
     // Never tried downloading the file
-    if (!(id in this.failHistory) || !this.failHistory[id].attempts.length) {
+    if (!(key in this.failHistory) || !this.failHistory[key].attempts.length) {
       return true;
     }
 
     // Already failed at downloading the file: check if we can retry now
     // Delay starts at 30 seconds, max delay is 23 days
-    const retriesCount = this.failHistory[id].attempts.length - 1;
-    const latestAttemptDate = this.failHistory[id].attempts.slice(-1)[0].timestamp;
-    const earliestNextAttemptDate = latestAttemptDate + Math.pow(2, Math.min(16, retriesCount)) * 30000;
+    const retriesCount = this.failHistory[key].attempts.length - 1;
+    const latestAttemptTimestamp = this.failHistory[key].attempts.slice(-1)[0].timestamp;
+    const earliestNextAttemptTimestamp = latestAttemptTimestamp + Math.pow(2, Math.min(16, retriesCount)) * 30000;
 
-    if (Date.now() > earliestNextAttemptDate) {
+    if (Date.now() > earliestNextAttemptTimestamp) {
       return true;
     }
 
@@ -91,10 +99,10 @@ export default class ExpoRetry {
   }
 
   registerFailedAttempt (hash, url) {
-    const id = this._getId(hash, url);
+    const key = this._getKey(hash, url);
 
-    this.failHistory[id] = this.failHistory[id] || { attempts: [] };
-    this.failHistory[id].attempts.push({ timestamp: Date.now() });
+    this.failHistory[key] = this.failHistory[key] || { attempts: [] };
+    this.failHistory[key].attempts.push({ timestamp: Date.now() });
 
     // Once the ongoing write is finished, write anew with the updated contents
     this.needWrite = true;
@@ -102,6 +110,7 @@ export default class ExpoRetry {
       if (this.needWrite) {
         // Skip subsequent promises, considering we are writing the latest value
         this.needWrite = false;
+
         return fsWriteJson(this._getFilePath(), this.failHistory);
       }
     });

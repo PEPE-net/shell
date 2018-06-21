@@ -17,12 +17,6 @@
 const fs = window.require('fs');
 const util = window.require('util');
 const path = window.require('path');
-// const https = window.require('https');
-
-const { http, https } = require('follow-redirects');
-
-// const debug = require('debug')('hashfetch');
-// ou import x as y
 
 import unzip from 'unzipper';
 
@@ -32,6 +26,7 @@ import Contracts from '@parity/shared/lib/contracts';
 import { sha3 } from '@parity/api/lib/util/sha3';
 import { bytesToHex } from '@parity/api/lib/util/format';
 import { ensureDir as fsEnsureDir, emptyDir as fsEmptyDir } from 'fs-extra';
+import { http, https } from 'follow-redirects';
 
 const fsExists = util.promisify(fs.stat);
 const fsStat = util.promisify(fs.stat);
@@ -54,7 +49,7 @@ function checkHashMatch (hash, path) {
   });
 }
 
-// List directory contents and tells if each item is a file or a directory
+// List directory contents and tell if each item is a file or a directory
 function ls (folderPath) {
   return fsReaddir(folderPath)
     .then(filenames =>
@@ -83,7 +78,7 @@ function unzipThroughTo (tempPath, extractPath, finalPath) {
     .then(() => fsUnlink(tempPath))
     .then(() => ls(extractPath))
     .then(files => {
-      // Check if the zip file had a root folder
+      // Check if the zip file contained a root folder
       if (files.length === 1 && files[0].isDirectory) {
         // Rename the root folder (contaning the dapp) to finalPath
         const rootFolderPath = files[0].filePath;
@@ -101,12 +96,12 @@ function download (url, destinationPath) {
   const file = fs.createWriteStream(destinationPath); // Will replace any existing file
 
   return new Promise((resolve, reject) => {
-    const httpx = url.startsWith('https') ? https : http;
+    const httpx = url.startsWith('https:') ? https : http;
 
     httpx.get(url, response => {
       var size = 0;
 
-      response.on('data', function (data) {
+      response.on('data', (data) => {
         size += data.length;
 
         if (size > MAX_DOWNLOADED_FILE_SIZE_BYTES) {
@@ -119,7 +114,7 @@ function download (url, destinationPath) {
 
       response.pipe(file);
 
-      file.on('finish', function () {
+      file.on('finish', () => {
         file.close(resolve);
       });
     });
@@ -184,7 +179,7 @@ function queryRegistryAndDownload (api, hash, expected) {
   });
 }
 
-function ensureMatchExpected (hash, filePath, expected) {
+function checkExpectedMatch (hash, filePath, expected) {
   return fsStat(filePath).then(stat => {
     if (stat.isDirectory() && expected === 'file') {
       throw new Error(`Expected ${hash} to be a file; got a folder (dapp).`);
@@ -199,7 +194,7 @@ function ensureMatchExpected (hash, filePath, expected) {
 export default class HashFetch {
   static instance = null;
   initialize = null; // Initialization promise
-  promises = {}; // Unsettled or resolved fetch promises only
+  promises = {}; // Unsettled or resolved HashFetch#fetch promises only
 
   static get () {
     if (!HashFetch.instance) {
@@ -216,17 +211,21 @@ export default class HashFetch {
   _initialize () {
     const hashFetchPath = getHashFetchPath();
 
-    return fsEnsureDir(hashFetchPath).then(() =>
-      Promise.all([
-        fsEnsureDir(path.join(hashFetchPath, 'files')),
-        fsEmptyDir(path.join(hashFetchPath, 'partial')),
-        fsEmptyDir(path.join(hashFetchPath, 'partial-extract')),
-        ExpoRetry.get().load()
-      ]));
+    return fsEnsureDir(hashFetchPath)
+      .then(() =>
+        Promise.all([
+          fsEnsureDir(path.join(hashFetchPath, 'files')),
+          fsEmptyDir(path.join(hashFetchPath, 'partial')),
+          fsEmptyDir(path.join(hashFetchPath, 'partial-extract')),
+          ExpoRetry.get().load()
+        ]))
+      .catch(e => {
+        throw new Error(`HashFetch initialization failed ${e}`);
+      });
   }
 
-  // Returns a Promise that resolves with the path to the file or directory
-  // expected is either 'file' or 'dapp'
+  // Returns a Promise that resolves with the path to the file or directory.
+  // `expected` is either 'file' or 'dapp'.
   fetch (api, hash, expected) {
     hash = hash.toLowerCase();
 
@@ -235,13 +234,12 @@ export default class HashFetch {
     return this.initialize.then(() => {
       const filePath = path.join(getHashFetchPath(), 'files', hash);
 
-      if (!(hash in this.promises)) {
-        // There is no ongoing or resolved fetch for this hash
+      if (!(hash in this.promises)) { // There is no ongoing or resolved fetch for this hash
         this.promises[hash] = fsExists(filePath)
           .catch(() => queryRegistryAndDownload(api, hash, expected))
-          .then(() => ensureMatchExpected(hash, filePath, expected))
+          .then(() => checkExpectedMatch(hash, filePath, expected))
           .then(() => filePath)
-          .catch(e => { delete this.promises[hash]; throw e; }); // Don't prevent retries
+          .catch(e => { delete this.promises[hash]; throw e; }); // Don't prevent retries if the fetch failed
       }
       return this.promises[hash];
     });

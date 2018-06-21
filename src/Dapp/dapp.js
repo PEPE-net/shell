@@ -152,7 +152,7 @@ export default class Dapp extends Component {
     const { params } = this.props;
     const { app, loading } = this.state;
 
-    if (loading) { // @todo seulement si c'est une dapp network qui n'a pas encore été téléchargée
+    if (loading) {
       return (
         <div className={ styles.full }>
           <p className={ styles.loading }>

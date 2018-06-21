@@ -144,8 +144,8 @@ export default class DappsStore extends EventEmitter {
   loadLocalApps () {
     return Promise
       .all([
-        // @TODO TEMP this.fetchBuiltinApps().then((apps) => this.addApps(apps)),
-        // @TODO TEMP this.fetchLocalApps().then((apps) => this.addApps(apps, true))
+        this.fetchBuiltinApps().then((apps) => this.addApps(apps)),
+        this.fetchLocalApps().then((apps) => this.addApps(apps, true))
       ]);
   }
 

@@ -38,7 +38,7 @@ function runApp () {
     .catch(() => fetchParity(mainWindow)) // Install parity if not present
     .catch(handleError); // Errors should be handled before, this is really just in case
 
-  return fsEnsureDir(getLocalDappsPath()).then(createWindow).catch(e => console.error(e));
+  return fsEnsureDir(getLocalDappsPath()).then(createWindow);
 }
 
 function createWindow () {
@@ -49,9 +49,7 @@ function createWindow () {
 
   mainWindow = new BrowserWindow({
     height: 800,
-    width: 1200,
-    webPreferences: { nodeIntegrationInWorker: true }
-
+    width: 1200
   });
 
   if (cli.uiDev === true) {

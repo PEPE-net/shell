@@ -38,8 +38,7 @@
   color: #999;
 }
 
-
-.loading :local {
+.loading {
   opacity: 0;
   animation-duration: .5s;
   animation-name: fadeIn;
@@ -47,18 +46,7 @@
   animation-fill-mode: forwards;
 }
 
-@keyframes fadeIng {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-
-
-@keyframes :local(fadeIn) {
+@keyframes fadeIn {
   from {
     opacity: 0;
   }

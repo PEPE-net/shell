@@ -49,7 +49,8 @@ function createWindow () {
 
   mainWindow = new BrowserWindow({
     height: 800,
-    width: 1200
+    width: 1200,
+    webPreferences: { nodeIntegrationInWorker: true }
   });
 
   if (cli.uiDev === true) {

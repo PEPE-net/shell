@@ -18,9 +18,9 @@ const fs = window.require('fs');
 const util = window.require('util');
 const path = window.require('path');
 
-import { getHashFetchPath } from './host';
+import { getHashFetchPath } from '../host';
 
-const { readJson: fsReadJson, writeJson: fsWriteJson } = window.require('fs-extra');
+import { readJson as fsReadJson, writeJson as fsWriteJson } from 'fs-extra';
 const fsExists = util.promisify(fs.stat);
 
 // Handle exponential retry for failed download attempts
@@ -80,7 +80,7 @@ export default class ExpoRetry {
     // Already failed at downloading the file: check if we can retry now
     // Delay starts at 30 seconds, max delay is 23 days
     const retriesCount = this.failHistory[id].attempts.length - 1;
-    const latestAttemptDate = this.failHistory[id].attempts.slice(-1).timestamp;
+    const latestAttemptDate = this.failHistory[id].attempts.slice(-1)[0].timestamp;
     const earliestNextAttemptDate = latestAttemptDate + Math.pow(2, Math.min(16, retriesCount)) * 30000;
 
     if (Date.now() > earliestNextAttemptDate) {
@@ -98,7 +98,7 @@ export default class ExpoRetry {
 
     // Once the ongoing write is finished, write anew with the updated contents
     this.needWrite = true;
-    this.queue = this.queue.then(() => {
+    this.writeQueue = this.writeQueue.then(() => {
       if (this.needWrite) {
         // Skip subsequent promises, considering we are writing the latest value
         this.needWrite = false;

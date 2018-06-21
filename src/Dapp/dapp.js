@@ -83,7 +83,7 @@ export default class Dapp extends Component {
     webview.addEventListener('new-window', (e) => {
       const protocol = url.parse(e.url).protocol;
 
-      if (protocol === 'http:' || protocol === 'https:' || protocol === 'file:') { // don't allow dapp loading file into the same view either, yes?
+      if (protocol === 'http:' || protocol === 'https:') {
         const { shell } = window.require('electron');
 
         shell.openExternal(e.url);
@@ -152,41 +152,33 @@ export default class Dapp extends Component {
     const { params } = this.props;
     const { app, loading } = this.state;
 
-    if (loading) {
-      return null;
+    if (loading) { // @todo seulement si c'est une dapp network qui n'a pas encore été téléchargée
+      return (
+        <div className={ styles.full }>
+          <p className={ styles.loading }>
+            <FormattedMessage
+              id='dapp.loading'
+              defaultMessage='Loading...'
+            />
+          </p>
+        </div>
+      );
     }
 
     if (!app) {
       return (
         <div className={ styles.full }>
-          <div className={ styles.text }>
+          <p>
             <FormattedMessage
               id='dapp.unavailable'
               defaultMessage='The dapp cannot be reached'
             />
-          </div>
+          </p>
         </div>
       );
     }
 
     let src = `${app.localUrl}?appId=${app.id}`;
-
-    if (app.type == 'network') {
-      // pas sûr si render c'est le mieux ; constructeur peut-être mieux
-      /*
-
-et sur la page de la dapp:
-(in the store) @TODO
-  // evtl onprogress callback app.progress = 0.4;
-  fetchContent.then(() => {
-    set localurl
-  }).catch('couldn't dl dapp content')
-  et que ça update l'app
-  sounds good
-
-    */
-   // todo show "loading" si pas de localUrl et type=network et contentHash?
-    }
 
     let hash = '';
 

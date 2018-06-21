@@ -20,7 +20,7 @@ const signerNewToken = require('../operations/signerNewToken');
 /**
  * Handle all asynchronous messages from renderer to main.
  */
-module.exports = (event, arg, data) => {
+module.exports = (event, arg) => {
   switch (arg) {
     case 'run-parity': {
       runParity();

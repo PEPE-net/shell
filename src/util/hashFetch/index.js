@@ -17,18 +17,21 @@
 const fs = window.require('fs');
 const util = window.require('util');
 const path = window.require('path');
-const https = window.require('https');
-const { ensureDir: fsEnsureDir, emptyDir: fsEmptyDir } = require('fs-extra');
+// const https = window.require('https');
+
+const { http, https } = require('follow-redirects');
+
 // const debug = require('debug')('hashfetch');
 // ou import x as y
 
 import unzip from 'unzipper';
 
-import { getHashFetchPath } from './host';
+import { getHashFetchPath } from '../host';
 import ExpoRetry from './expoRetry';
 import Contracts from '@parity/shared/lib/contracts';
 import { sha3 } from '@parity/api/lib/util/sha3';
 import { bytesToHex } from '@parity/api/lib/util/format';
+import { ensureDir as fsEnsureDir, emptyDir as fsEmptyDir } from 'fs-extra';
 
 const fsExists = util.promisify(fs.stat);
 const fsStat = util.promisify(fs.stat);
@@ -37,7 +40,8 @@ const fsReadFile = util.promisify(fs.readFile);
 const fsUnlink = util.promisify(fs.unlink);
 const fsReaddir = util.promisify(fs.readdir);
 const fsRmdir = util.promisify(fs.rmdir);
-const httpsGet = util.promisify(https.get);
+
+const MAX_DOWNLOADED_FILE_SIZE_BYTES = 10485760; // 20MB
 
 function registerFailedAttemptAndThrow (hash, url, e) {
   ExpoRetry.get().registerFailedAttempt(hash, url);
@@ -50,15 +54,25 @@ function checkHashMatch (hash, path) {
   });
 }
 
+// List directory contents and tells if each item is a file or a directory
+function ls (folderPath) {
+  return fsReaddir(folderPath)
+    .then(filenames =>
+      Promise.all(filenames.map(filename => {
+        const filePath = path.join(folderPath, filename);
+
+        return fsStat(filePath).then(stat => ({ isDirectory: stat.isDirectory(), filePath, filename }));
+      }))
+    );
+}
+
 function rawUnzipTo (zipPath, extractPath) {
   return new Promise((resolve, reject) => {
     const unzipParser = unzip.Extract({ path: extractPath });
 
     fs.createReadStream(zipPath).pipe(unzipParser);
 
-    unzipParser.on('error', function (e) {
-      reject(e);
-    });
+    unzipParser.on('error', reject);
 
     unzipParser.on('close', resolve);
   });
@@ -67,61 +81,54 @@ function rawUnzipTo (zipPath, extractPath) {
 function unzipThroughTo (tempPath, extractPath, finalPath) {
   return rawUnzipTo(tempPath, extractPath)
     .then(() => fsUnlink(tempPath))
-    .then(() => {
-      return fsReaddir(extractPath)
-          .then(filenames => // Gather info about files
-            Promise.all(filenames.map(filename => {
-              const filePath = path.join(extractPath, filename);
+    .then(() => ls(extractPath))
+    .then(files => {
+      // Check if the zip file had a root folder
+      if (files.length === 1 && files[0].isDirectory) {
+        // Rename the root folder (contaning the dapp) to finalPath
+        const rootFolderPath = files[0].filePath;
 
-              return fsStat(filePath).then(stat => ({ isDirectory: stat.isDirectory(), filePath, filename }));
-            }))
-          )
-          .then(filenames => {
-            if (filenames.length === 1 && filenames[0].isDirectory) {
-              // Zip file with a root folder
-              const rootFolderPath = filenames[0].filePath;
-
-              return fsRename(rootFolderPath, finalPath)
-                .then(() => fsRmdir(extractPath));
-            } else {
-              // Zip file without root folder
-              return fsRename(extractPath, finalPath);
-            }
-          });
+        return fsRename(rootFolderPath, finalPath)
+            .then(() => fsRmdir(extractPath));
+      } else {
+        // No root folder: extractPath contains the dapp
+        return fsRename(extractPath, finalPath);
+      }
     });
 }
 
-const MAX_DOWNLOADED_FILE_SIZE = 10485760; // 20MB
-
 function download (url, destinationPath) {
-  // Will replace any existing file
-  const file = fs.createWriteStream(destinationPath);
+  const file = fs.createWriteStream(destinationPath); // Will replace any existing file
 
-  return httpsGet(url).then(response => new Promise((resolve, reject) => {
-    var size = 0;
+  return new Promise((resolve, reject) => {
+    const httpx = url.startsWith('https') ? https : http;
 
-    response.on('data', function (data) {
-      size += data.length;
+    httpx.get(url, response => {
+      var size = 0;
 
-      if (size > MAX_DOWNLOADED_FILE_SIZE) {
-        response.destroy();
-        response.unpipe(file);
-        fsUnlink(destinationPath);
-        reject(`File download aborted: exceeded maximum size of ${MAX_DOWNLOADED_FILE_SIZE} bytes`);
-      }
+      response.on('data', function (data) {
+        size += data.length;
+
+        if (size > MAX_DOWNLOADED_FILE_SIZE_BYTES) {
+          response.destroy();
+          response.unpipe(file);
+          fsUnlink(destinationPath);
+          reject(`File download aborted: exceeded maximum size of ${MAX_DOWNLOADED_FILE_SIZE_BYTES} bytes`);
+        }
+      });
+
+      response.pipe(file);
+
+      file.on('finish', function () {
+        file.close(resolve);
+      });
     });
-
-    response.pipe(file);
-
-    file.on('finish', function () {
-      file.close(() => resolve());
-    });
-  }));
+  });
 }
 
 function hashDownload (hash, url, zip = false) {
   const tempFilename = `${hash}.part`;
-  const tempPath = path.join(getHashFetchPath(), 'partial', tempFilename); // todo make sure filename cannot be '../' or something
+  const tempPath = path.join(getHashFetchPath(), 'partial', tempFilename);
 
   const finalPath = path.join(getHashFetchPath(), 'files', hash);
 
@@ -221,12 +228,15 @@ export default class HashFetch {
   // Returns a Promise that resolves with the path to the file or directory
   // expected is either 'file' or 'dapp'
   fetch (api, hash, expected) {
-    this.initialize.then(() => {
+    hash = hash.toLowerCase();
+
+    if (!/^[0-9a-z]{64}$/.test(hash)) { return Promise.reject(`${hash} isn't a valid hash.`); }
+
+    return this.initialize.then(() => {
       const filePath = path.join(getHashFetchPath(), 'files', hash);
 
       if (!(hash in this.promises)) {
-        // @TODO DOC: no ongoing fetch for this hash, and no resolved fetch
-        // :then fetch
+        // There is no ongoing or resolved fetch for this hash
         this.promises[hash] = fsExists(filePath)
           .catch(() => queryRegistryAndDownload(api, hash, expected))
           .then(() => ensureMatchExpected(hash, filePath, expected))

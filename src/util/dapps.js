@@ -215,7 +215,7 @@ export function fetchRegistryApp (api, dappReg, appId) {
 
       return Promise.all([
         HashFetch.get().fetch(api, imageHash, 'file').catch((e) => { console.warn(`Couldn't download icon for dapp ${appId}`, e); }),
-        HashFetch.get().fetch(api, manifestHash, 'file').catch((e) => { throw new Error(`Couldn't download manifest ${e}`); })
+        HashFetch.get().fetch(api, manifestHash, 'file').catch((e) => { throw new Error(`Couldn't download manifest ${e.toString()}`); })
       ]).then(([imagePath, manifestPath]) =>
         fsReadFile(manifestPath)
           .then(r => {
@@ -237,7 +237,7 @@ export function fetchRegistryApp (api, dappReg, appId) {
           .then(manifest => {
             const { author, description, name, version } = manifest;
             const app = {
-              id: appId, // ignore manifest.id?
+              id: appId,
               type: 'network',
               author,
               description,

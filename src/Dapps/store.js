@@ -20,7 +20,6 @@ import store from 'store';
 
 import Contracts from '@parity/shared/lib/contracts';
 import { fetchBuiltinApps, fetchLocalApps, fetchRegistryAppIds, fetchRegistryApp, subscribeToChanges } from '../util/dapps';
-
 import HashFetch from '../util/hashFetch';
 
 const LS_KEY_DISPLAY = 'displayApps';
@@ -128,8 +127,8 @@ export default class DappsStore extends EventEmitter {
       .then((app) => {
         if (app.type === 'network') {
           return HashFetch.get().fetch(this._api, app.contentHash, 'dapp')
-            .then((path) => {
-              app.localUrl = `file://${path}/index.html`;
+            .then(appPath => {
+              app.localUrl = `file://${appPath}/index.html`;
               return app;
             })
             .catch(e => { console.error(`Error loading dapp ${id}`, e); });
